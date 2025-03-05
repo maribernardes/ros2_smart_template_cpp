@@ -1,0 +1,37 @@
+{
+  "keys": {},
+  "groups": {
+    "pluginmanager": {
+      "keys": {
+        "running-plugins": {
+          "type": "repr",
+          "repr": "{'smart_template_gui/SmartTemplateGUI': [1]}"
+        }
+      },
+      "groups": {
+        "plugin__smart_template_gui__SmartTemplateGUI__1": {
+          "keys": {},
+          "groups": {
+            "dock_widget__SmartTemplateGUI": {
+              "keys": {
+                "dockable": {
+                  "type": "repr",
+                  "repr": "True"
+                },
+                "parent": {
+                  "type": "repr",
+                  "repr": "None"
+                },
+                "dock_widget_title": {
+                  "type": "repr",
+                  "repr": "'SmartTemplate GUI'"
+                }
+              },
+              "groups": {}
+            }
+          }
+        }
+      }
+    }
+  }
+}

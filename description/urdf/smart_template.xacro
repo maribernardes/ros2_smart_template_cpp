@@ -1,0 +1,94 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro">
+
+  <xacro:macro name="smart_template" params="needle_type">
+
+    <!-- Define limit values for each needle type -->
+    <xacro:property name="insertion_upper_limit" value="0.115"/>
+    <xacro:if value="${needle_type == 'default'}">
+      <xacro:property name="insertion_upper_limit" value="0.115"/>
+    </xacro:if>
+    <xacro:if value="${needle_type == 'stylet'}">
+      <xacro:property name="insertion_upper_limit" value="0.115"/>
+    </xacro:if>
+    <xacro:if value="${needle_type == 'smartneedle'}">
+      <xacro:property name="insertion_upper_limit" value="0.165"/>
+    </xacro:if>
+    <xacro:if value="${needle_type == 'biopsygun'}">
+      <xacro:property name="insertion_upper_limit" value="0.175"/>
+    </xacro:if>
+    <!-- Include materials -->
+    <xacro:include filename="$(find smart_template_cpp)/description/urdf/materials.xacro" />
+    <!-- Include ros2_control -->
+    <xacro:include filename="$(find smart_template_cpp)/description/urdf/smart_template.ros2_control.xacro" />
+    <xacro:smart_template_ros2_control/>
+
+    <!-- Define Links -->
+    <link name="base_link">
+      <visual>        
+        <origin xyz="0 0 0" rpy="0 0 ${-pi/2}"/>
+        <geometry>
+          <mesh filename="package://smart_template_cpp/description/meshes/base_link.stl"/>
+        </geometry>
+        <material name="silver"/>
+      </visual>
+    </link>
+    
+    <link name="vertical_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 ${-pi/2}"/>
+        <geometry>
+          <mesh filename="package://smart_template_cpp/description/meshes/vertical_link.stl"/>
+        </geometry>
+        <material name="silver"/>
+      </visual>
+    </link>
+    
+    <link name="horizontal_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 ${-pi/2}"/>
+        <geometry>
+          <mesh filename="package://smart_template_cpp/description/meshes/horizontal_link.stl"/>
+        </geometry>
+        <material name="silver"/>
+      </visual>
+    </link>
+
+    <link name="needle_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 ${-pi/2}"/>
+        <geometry>
+          <mesh filename="package://smart_template_cpp/description/meshes/needle_link_${needle_type}.stl"/>
+        </geometry>
+        <material name="silver"/>
+      </visual>
+    </link>
+
+    <!-- Define joints -->
+    <joint name="vertical_joint" type="prismatic">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <parent link="base_link"/>
+      <child link="vertical_link"/>
+      <axis xyz="0.0 0.0 1.0"/>
+      <limit upper="0.025" lower="-0.025" effort="100" velocity="100"/>
+    </joint>
+
+    <joint name="horizontal_joint" type="prismatic">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <parent link="vertical_link"/>
+      <child link="horizontal_link"/>
+      <axis xyz="1.0 0.0 0.0"/>
+      <limit upper="0.03" lower="-0.03" effort="100" velocity="100"/>
+    </joint>
+    
+    <joint name="insertion_joint" type="prismatic">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <parent link="horizontal_link"/>
+      <child link="needle_link"/>
+      <axis xyz="0.0 1.0 0.0"/>
+      <limit upper="${insertion_upper_limit}" lower="0.0" effort="100" velocity="100"/>
+    </joint>
+
+  </xacro:macro>
+
+</robot>

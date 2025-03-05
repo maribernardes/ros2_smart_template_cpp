@@ -1,0 +1,41 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 50
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    smart_template_controller:
+      type: smart_template_cpp/SmartTemplateController
+
+    velocity_controller:
+      type: velocity_controllers/JointGroupVelocityController
+
+    position_controller:
+      type: position_controllers/JointGroupPositionController
+
+smart_template_controller:
+  ros__parameters:
+    joints:
+      - horizontal_joint
+      - insertion_joint
+      - vertical_joint
+    robot_base_link: world
+    end_effector_link: needle_link
+    interface_name: velocity
+
+velocity_controller:
+  ros__parameters:
+    joints:
+      - horizontal_joint
+      - insertion_joint
+      - vertical_joint
+    interface_name: velocity
+
+position_controller:
+  ros__parameters:
+    joints:
+      - horizontal_joint
+      - insertion_joint
+      - vertical_joint
+    interface_name: position

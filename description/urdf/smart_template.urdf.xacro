@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="$(arg name)">
+
+  <!-- Argument for needle_type -->
+  <xacro:arg name="needle_type" default="default"/>
+  <xacro:arg name="zframe_config" default="default"/>
+
+  <!-- smart_template URDF -->
+  <xacro:include filename="$(find smart_template_cpp)/description/urdf/smart_template.xacro"/>
+  <xacro:smart_template needle_type="$(arg needle_type)">
+  </xacro:smart_template>
+
+  <!-- zFrame URDF -->
+  <xacro:include filename="$(find smart_template_cpp)/description/urdf/zframe.xacro"/>
+  <xacro:zframe zframe_config="$(arg zframe_config)">
+  </xacro:zframe>
+
+  <!-- create link fixed to the "world" -->
+  <link name="world" />
+
+  <joint name="base_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="world"/>
+    <child link="base_link" />
+  </joint>
+
+</robot>

@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="smart_template_ros2_control">
+    <ros2_control name="smart_template" type="system">
+      <hardware>
+        <plugin>galil_driver/GalilSystemHardwareInterface</plugin>
+      </hardware>
+      
+      <joint name="insertion_joint">
+        <command_interface name="position">
+          <param name="min">0</param>
+          <param name="max">0.1</param>
+        </command_interface>
+        <command_interface name="velocity">
+          <param name="min">-0.005</param>
+          <param name="max"> 0.005</param>
+        </command_interface>
+        <state_interface name="position">
+          <param name="initial_value">0</param>
+        </state_interface>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <joint name="horizontal_joint">
+        <command_interface name="position">
+          <param name="min">-0.03</param>
+          <param name="max"> 0.03</param>
+        </command_interface>
+        <command_interface name="velocity">
+          <param name="min">-0.005</param>
+          <param name="max"> 0.005</param>
+        </command_interface>
+        <state_interface name="position">
+          <param name="initial_value">0</param>
+        </state_interface>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <joint name="vertical_joint">
+        <command_interface name="position">
+          <param name="min">   0</param>
+          <param name="max">0.05</param>
+        </command_interface>
+        <command_interface name="velocity">
+          <param name="min">-0.005</param>
+          <param name="max"> 0.005</param>
+        </command_interface>
+        <state_interface name="position">
+          <param name="initial_value">0</param>
+        </state_interface>
+        <state_interface name="velocity"/>
+      </joint>
+
+    </ros2_control>
+
+  </xacro:macro>
+
+</robot>

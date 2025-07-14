@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://wiki.ros.org/xacro">
 
-  <xacro:macro name="smart_template" params="needle_type">
+  <xacro:macro name="smart_template" params="robot_mode needle_type">
 
     <!-- Define limit values for each needle type -->
     <xacro:property name="insertion_upper_limit" value="0.115"/>
@@ -18,17 +18,14 @@
       <xacro:property name="insertion_upper_limit" value="0.175"/>
     </xacro:if>
     <!-- Include materials -->
-    <xacro:include filename="$(find smart_template_cpp)/description/urdf/materials.xacro" />
-    <!-- Include ros2_control -->
-    <xacro:include filename="$(find smart_template_cpp)/description/urdf/smart_template.ros2_control.xacro" />
-    <xacro:smart_template_ros2_control/>
+    <xacro:include filename="$(find smart_template_description)/urdf/materials.xacro" />
 
     <!-- Define Links -->
     <link name="base_link">
       <visual>        
         <origin xyz="0 0 0" rpy="0 0 ${-pi/2}"/>
         <geometry>
-          <mesh filename="package://smart_template_cpp/description/meshes/base_link.stl"/>
+          <mesh filename="package://smart_template_description/meshes/base_link.stl"/>
         </geometry>
         <material name="silver"/>
       </visual>
@@ -38,7 +35,7 @@
       <visual>
         <origin xyz="0 0 0" rpy="0 0 ${-pi/2}"/>
         <geometry>
-          <mesh filename="package://smart_template_cpp/description/meshes/vertical_link.stl"/>
+          <mesh filename="package://smart_template_description/meshes/vertical_link.stl"/>
         </geometry>
         <material name="silver"/>
       </visual>
@@ -48,7 +45,7 @@
       <visual>
         <origin xyz="0 0 0" rpy="0 0 ${-pi/2}"/>
         <geometry>
-          <mesh filename="package://smart_template_cpp/description/meshes/horizontal_link.stl"/>
+          <mesh filename="package://smart_template_description/meshes/horizontal_link.stl"/>
         </geometry>
         <material name="silver"/>
       </visual>
@@ -58,7 +55,7 @@
       <visual>
         <origin xyz="0 0 0" rpy="0 0 ${-pi/2}"/>
         <geometry>
-          <mesh filename="package://smart_template_cpp/description/meshes/needle_link_${needle_type}.stl"/>
+          <mesh filename="package://smart_template_description/meshes/needle_link_${needle_type}.stl"/>
         </geometry>
         <material name="silver"/>
       </visual>
@@ -70,7 +67,16 @@
       <parent link="base_link"/>
       <child link="vertical_link"/>
       <axis xyz="0.0 0.0 1.0"/>
-      <limit upper="0.025" lower="-0.025" effort="100" velocity="100"/>
+      <!-- conditional limits -->
+      <xacro:if value="$(eval robot_mode == 'calibration')">
+        <limit upper="1e6" lower="-1e6" effort="100" velocity="1e6"/>
+      </xacro:if>
+      <xacro:unless value="$(eval robot_mode == 'calibration')">
+        <limit upper="0.025" lower="-0.025" effort="100" velocity="100"/>
+      </xacro:unless>
+      <!-- custom extension -->
+      <channel>C</channel>
+      <mm_to_count>1430.0</mm_to_count>
     </joint>
 
     <joint name="horizontal_joint" type="prismatic">
@@ -78,7 +84,16 @@
       <parent link="vertical_link"/>
       <child link="horizontal_link"/>
       <axis xyz="1.0 0.0 0.0"/>
-      <limit upper="0.03" lower="-0.03" effort="100" velocity="100"/>
+      <!-- conditional limits -->
+      <xacro:if value="$(eval robot_mode == 'calibration')">
+        <limit upper="1e6" lower="-1e6" effort="100" velocity="1e6"/>
+      </xacro:if>
+      <xacro:unless value="$(eval robot_mode == 'calibration')">
+        <limit upper="0.03" lower="-0.03" effort="100" velocity="100"/>
+      </xacro:unless>      
+      <!-- custom extension -->
+      <channel>A</channel>
+      <mm_to_count>715.0</mm_to_count>
     </joint>
     
     <joint name="insertion_joint" type="prismatic">
@@ -86,7 +101,16 @@
       <parent link="horizontal_link"/>
       <child link="needle_link"/>
       <axis xyz="0.0 1.0 0.0"/>
-      <limit upper="${insertion_upper_limit}" lower="0.0" effort="100" velocity="100"/>
+      <!-- conditional limits -->
+      <xacro:if value="$(eval robot_mode == 'calibration')">
+        <limit upper="1e6" lower="-1e6" effort="100" velocity="1e6"/>
+      </xacro:if>
+      <xacro:unless value="$(eval robot_mode == 'calibration')">
+        <limit upper="${insertion_upper_limit}" lower="0.0" effort="100" velocity="100"/>
+      </xacro:unless>
+      <!-- custom extension -->
+      <channel>B</channel>
+      <mm_to_count>-1574.8031</mm_to_count>
     </joint>
 
   </xacro:macro>

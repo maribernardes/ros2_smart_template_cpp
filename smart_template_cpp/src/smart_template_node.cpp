@@ -36,18 +36,27 @@ SmartTemplateNode::SmartTemplateNode()
     std::bind(&SmartTemplateNode::timer_stage_pose_callback, this));
   
   // Initialize service servers
-  command_server_ = this->create_service<smart_template_cpp::srv::Command>(
+  command_server_ = this->create_service<smart_template_interfaces::srv::Command>(
     "/stage/command",
-    std::bind(&SmartTemplateNode::command_callback, this, std::placeholders::_1, std::placeholders::_2));
-  
-  move_server_ = this->create_service<smart_template_cpp::srv::Move>(
+    [this](const std::shared_ptr<smart_template_interfaces::srv::Command::Request> request,
+            std::shared_ptr<smart_template_interfaces::srv::Command::Response> response) {
+      this->command_callback(request, response);
+    });
+    
+  move_server_ = this->create_service<smart_template_interfaces::srv::Move>(
     "/stage/move",
-    std::bind(&SmartTemplateNode::move_callback, this, std::placeholders::_1, std::placeholders::_2));
+    [this](const std::shared_ptr<smart_template_interfaces::srv::Move::Request> request,
+            std::shared_ptr<smart_template_interfaces::srv::Move::Response> response) {
+      this->move_callback(request, response);
+    });
   
-  current_position_server_ = this->create_service<smart_template_cpp::srv::GetPoint>(
+  current_position_server_ = this->create_service<smart_template_interfaces::srv::GetPoint>(
     "/stage/get_position",
-    std::bind(&SmartTemplateNode::current_position_callback, this, std::placeholders::_1, std::placeholders::_2));
-  
+    [this](const std::shared_ptr<smart_template_interfaces::srv::GetPoint::Request> request,
+            std::shared_ptr<smart_template_interfaces::srv::GetPoint::Response> response) {
+      this->current_position_callback(request, response);
+    });
+
   // Initialize action server
   action_server_ = rclcpp_action::create_server<MoveAndObserve>(
     this,
@@ -235,8 +244,8 @@ double SmartTemplateNode::distance_positions(
 }
 
 void SmartTemplateNode::command_callback(
-  const std::shared_ptr<smart_template_cpp::srv::Command::Request> request,
-  std::shared_ptr<smart_template_cpp::srv::Command::Response> response)
+  const std::shared_ptr<smart_template_interfaces::srv::Command::Request> request,
+  std::shared_ptr<smart_template_interfaces::srv::Command::Response> response)
 {
   RCLCPP_INFO(this->get_logger(), "Received command request: %s", request->command.c_str());
   
@@ -258,8 +267,8 @@ void SmartTemplateNode::command_callback(
 }
 
 void SmartTemplateNode::move_callback(
-  const std::shared_ptr<smart_template_cpp::srv::Move::Request> request,
-  std::shared_ptr<smart_template_cpp::srv::Move::Response> response)
+  const std::shared_ptr<smart_template_interfaces::srv::Move::Request> request,
+  std::shared_ptr<smart_template_interfaces::srv::Move::Response> response)
 {
   RCLCPP_INFO(this->get_logger(), "Received move request: x=%f, y=%f, z=%f, eps=%f",
     request->x, request->y, request->z, request->eps);
@@ -278,8 +287,8 @@ void SmartTemplateNode::move_callback(
 }
 
 void SmartTemplateNode::current_position_callback(
-  const std::shared_ptr<smart_template_cpp::srv::GetPoint::Request> /*request*/,
-  std::shared_ptr<smart_template_cpp::srv::GetPoint::Response> response)
+  const std::shared_ptr<smart_template_interfaces::srv::GetPoint::Request> /*request*/,
+  std::shared_ptr<smart_template_interfaces::srv::GetPoint::Response> response)
 {
   RCLCPP_DEBUG(this->get_logger(), "Received current position request");
   

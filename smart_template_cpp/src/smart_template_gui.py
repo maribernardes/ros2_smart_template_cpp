@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-import threading
 import uuid  # Import uuid to generate unique  
+import copy
 
 # Import URDF description
 import xml.etree.ElementTree as ET
@@ -10,21 +10,20 @@ from rcl_interfaces.msg import ParameterType
 
 # Import ROS 2 libraries
 import rclpy
-from rclpy.node import Node
-from rclpy.clock import Clock
+from rclpy.action import ActionClient
 
 # Import rqt Plugin base class
 from rqt_gui_py.plugin import Plugin
 
 # Import Qt libraries
-from python_qt_binding.QtGui import QColor
-from python_qt_binding.QtWidgets import (
-    QWidget, QLabel, QSlider, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QSpacerItem, QFrame, QGridLayout, QTextEdit)
-from python_qt_binding.QtCore import Qt, Signal, Slot, QTimer
+from python_qt_binding.QtWidgets import (QWidget, QLabel, QSlider, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QSpacerItem, QFrame, QGridLayout, QTextEdit)
+from python_qt_binding.QtCore import Qt, Signal, QTimer
 
-# Import ROS 2 message types
+# Import ROS 2 message and service types
+from action_msgs.msg import GoalStatus
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Float64MultiArray
+from smart_template_interfaces.action import MoveAndObserve
+from smart_template_interfaces.srv import Command
 
 from functools import partial
 
@@ -52,14 +51,8 @@ class SmartTemplateGUIPlugin(Plugin):
         try:
             self.node.get_logger().info(f"Successfully loaded robot_description: {len(urdf_string)} characters")
             self.joint_names, self.joint_limits = self.extract_robot_joints(urdf_string)
-        except Exception as e:
-            self.node.get_logger().error(f"Failed to retrieve robot_description: {e}")
-            self.joint_names = ['horizontal_joint', 'insertion_joint', 'vertical_joint']
-            self.joint_limits = {
-                'horizontal_joint': {'min': -30.0, 'max': 30.0},
-                'insertion_joint': {'min': 0.0, 'max': 100.0},
-                'vertical_joint': {'min': 0.0, 'max': 50.0}
-            }
+        except:
+            self.node.get_logger().error("Failed to retrieve robot_description.")
 
         self.current_joint_values = {name: 0.0 for name in self.joint_names}
         self.desired_joint_values = {name: 0.0 for name in self.joint_names}
@@ -75,13 +68,16 @@ class SmartTemplateGUIPlugin(Plugin):
         # ROS subscribers
         self.joint_state_subscriber = self.node.create_subscription(
             JointState, '/joint_states', self.joint_state_callback, 10)
-            
-        # ROS publishers for position controller
-        self.position_publisher = self.node.create_publisher(
-            Float64MultiArray, '/position_controller/commands', 10)
-            
-        # Using ROS 2 Control position controller
-        self.node.get_logger().info('Using ROS2 Control position_controller for smart_template')
+
+        # ROS Action client
+        self.action_client = ActionClient(self.node, MoveAndObserve, '/stage/move_and_observe')
+        self.node.get_logger().info('Waiting for action server /stage/move_and_observe...')
+        self.action_client.wait_for_server()
+
+        # ROS Service client
+        self.service_client = self.node.create_client(Command, '/stage/command')
+        self.node.get_logger().info('Waiting for service /stage/command...')
+        self.service_client.wait_for_service()
 
         # Setup UI elements
         self.setup_ui()
@@ -95,7 +91,7 @@ class SmartTemplateGUIPlugin(Plugin):
         # Wait for the service to become available
         if not param_client.wait_for_service(timeout_sec=5.0):
             self.node.get_logger().error("Service /robot_state_publisher/get_parameters not available.")
-            return ""
+            return None
         # Create a request to get the 'robot_description' parameter
         request = GetParameters.Request()
         request.names = ['robot_description']
@@ -106,10 +102,10 @@ class SmartTemplateGUIPlugin(Plugin):
         response = future.result()
         if response is None:
             self.node.get_logger().error("Failed to fetch robot_description parameter.")
-            return ""
+            return None
         if len(response.values) == 0 or response.values[0].type != ParameterType.PARAMETER_STRING:
             self.node.get_logger().error("robot_description parameter is empty or not a string!")
-            return ""
+            return None
         # Extract the URDF string
         urdf_string = response.values[0].string_value
         self.node.get_logger().info(f"Robot Description retrieved: {len(urdf_string)} characters")
@@ -118,22 +114,28 @@ class SmartTemplateGUIPlugin(Plugin):
     def extract_robot_joints(self, urdf_string):
         # Parse URDF
         root = ET.fromstring(urdf_string)
-        joint_names = []
-        joint_limits = {}
-
-        for joint in root.findall('joint'):
-            joint_name = joint.get('name')
-            limit = joint.find('limit')
+        raw_channels = {}
+        raw_limits = {}
+        for joint_elem in root.findall('joint'):
+            name = joint_elem.get('name')
+            channel_elem = joint_elem.find('channel')
+            if channel_elem is not None:
+                channel = channel_elem.text.strip()
+                raw_channels[name] = channel
+            limit = joint_elem.find('limit')
             if limit is not None:
-                lower = 1000*float(limit.get('lower', '0.0'))
-                upper = 1000*float(limit.get('upper', '0.0'))
-                joint_names.append(joint_name)
-                joint_limits[joint_name] = {'min': lower, 'max': upper}
-
-        self.node.get_logger().info(f"Joint Names: {joint_names}")
-        self.node.get_logger().info(f"Joint Limits: {joint_limits}")
+                lower = 1000*float(limit.get('lower', 'nan'))
+                upper = 1000*float(limit.get('upper', 'nan'))
+                raw_limits[name] = {'min': lower, 'max': upper}
+        # Sort by channel order (A, B, C, ...)
+        sorted_joint_items = sorted(raw_channels.items(), key=lambda item: item[1])
+        joint_names = [joint for joint, _ in sorted_joint_items]
+        joint_limits = {
+            joint: raw_limits[joint]
+            for joint in joint_names if joint in raw_limits
+        }
         return joint_names, joint_limits
-
+    
     def spin_once(self):
         rclpy.spin_once(self.node, timeout_sec=0)
 
@@ -188,7 +190,7 @@ class SmartTemplateGUIPlugin(Plugin):
             value_layout.addWidget(desired_value_label)
             value_layout.addWidget(desired_value_box)
 
-            # Layout for each joint
+            # Layout for each jointBefore
             joint_layout = QVBoxLayout()
             joint_layout.addWidget(joint_label)
             joint_layout.addLayout(slider_layout)
@@ -235,8 +237,8 @@ class SmartTemplateGUIPlugin(Plugin):
         home_button = QPushButton('HOME')
 
         # Connect buttons to the service request function
-        retract_button.clicked.connect(lambda: self.send_command('RETRACT'))
-        home_button.clicked.connect(lambda: self.send_command('HOME'))
+        retract_button.clicked.connect(lambda: self.send_service_request('RETRACT'))
+        home_button.clicked.connect(lambda: self.send_service_request('HOME'))
 
         retract_home_layout.addWidget(retract_button)
         retract_home_layout.addWidget(home_button)
@@ -360,79 +362,57 @@ class SmartTemplateGUIPlugin(Plugin):
                 self.node.get_logger().warn(f'Invalid input for {joint}')
                 self.messageBox.append(f'{self.get_ros_timestamp()} <span style="color: red;">Warning:</span> Invalid input for {joint}. Please enter a numeric value.')
                 return  # Exit early if any value is invalid
-        # Send position command
-        self.send_joint_position_command(self.desired_joint_values)
+        # Send action request
+        self.send_action_request(self.desired_joint_values)
 
     # Handle incremental step buttons
     def handle_step_motion_button(self, direction):
         try:
             step_size = 0
-            joint_key = ''
+            joint_name = None
             if direction in ['UP', 'DOWN']:
                 step_size = float(self.up_down_step_size.text())
-                joint_key = 'vertical_joint'
+                joint_name = 'vertical_joint'
                 step_modifier = 1 if direction == 'UP' else -1
             elif direction in ['LEFT', 'RIGHT']:
                 step_size = float(self.left_right_step_size.text())
-                joint_key = 'horizontal_joint'
+                joint_name = 'horizontal_joint'
                 step_modifier = 1 if direction == 'RIGHT' else -1
             elif direction in ['+', '-']:
                 step_size = float(self.insertion_step_size.text())
-                joint_key = 'insertion_joint'
+                joint_name = 'insertion_joint'
                 step_modifier = 1 if direction == '+' else -1
-            self.desired_joint_values = self.current_joint_values.copy()  # Make a copy of current joints
-            if joint_key:                                         # Increment desired step value in the selected joint
-                self.desired_joint_values[joint_key] = self.current_joint_values[joint_key] + step_modifier * step_size
-                self.send_joint_position_command(self.desired_joint_values)
+            self.desired_joint_values = copy.deepcopy(self.current_joint_values) # Put desired values equal to current joints
+            formatted = {k: f"{v:.2f}" for k, v in self.current_joint_values.items()}
+            self.node.get_logger().info(f"Current = {formatted}")
+            if joint_name is not None:                                         # Increment desired step value in the selected joint
+                self.desired_joint_values[joint_name] = self.current_joint_values[joint_name] + step_modifier * step_size
+                formatted = {k: f"{v:.2f}" for k, v in self.desired_joint_values.items()}
+                self.node.get_logger().info(f"Desired = {formatted}")
+                self.send_action_request(self.desired_joint_values)
         except ValueError:
             self.node.get_logger().warn('Invalid step size value')
 
-    # Send command request to smart_template robot (using ROS2 Control)
-    def send_command(self, cmd_string):
+    # Send command request to smart_template robot 
+    def send_service_request(self, cmd_string):
         self.robot_idle = False
-        
-        # Handle different commands
-        if cmd_string == 'HOME':
-            # Send all joints to home position (0)
-            self.node.get_logger().info('Sending HOME command')
-            self.messageBox.append(f'{self.get_ros_timestamp()} Sending HOME command')
-            
-            # Send zeros to all joint positions
-            home_positions = [0.0, 0.0, 0.0]  # horizontal, insertion, vertical
-            self.send_position_command(home_positions)
-            
-        elif cmd_string == 'RETRACT':
-            # Keep horizontal and vertical position, but retract insertion to 0
-            current_values = self.current_joint_values
-            self.node.get_logger().info('Sending RETRACT command')
-            self.messageBox.append(f'{self.get_ros_timestamp()} Sending RETRACT command')
-            
-            # Create command with current horizontal/vertical but 0 insertion
-            retract_positions = [
-                current_values.get('horizontal_joint', 0.0),
-                0.0,  # insertion_joint set to 0
-                current_values.get('vertical_joint', 0.0)
-            ]
-            self.send_position_command(retract_positions)
-        
+        request = Command.Request()
+        request.command = cmd_string
+        future = self.service_client.call_async(request)
+        future.add_done_callback(partial(self.get_response_callback))
+
+    def get_response_callback(self, future):
+        try:
+            response = future.result()
+            self.node.get_logger().info('Service call sucessful: %s' %(response.response)) 
+        except Exception as e:
+            self.node.get_logger().error('Service call failed: %r' %(e,))
         self.robot_idle = True
 
-    # Send position command directly to position_controller
-    def send_position_command(self, positions):
-        msg = Float64MultiArray()
-        
-        # Convert mm to meters for ROS2 Control
-        positions_meters = [p / 1000.0 for p in positions]
-        
-        msg.data = positions_meters
-        self.position_publisher.publish(msg)
-        self.node.get_logger().info(f'Published position command: {positions_meters}')
-
-    # Send position command for specified joints
-    def send_joint_position_command(self, desired_joint_values):
+    # Send action request to smart_template robot
+    def send_action_request(self, desired_joint_values):
         self.robot_idle = False
         corrected_values = {}
-        
         # Validate and correct desired_joint_values against joint_limits
         for joint, value in desired_joint_values.items():
             limits = self.joint_limits.get(joint, {})
@@ -446,20 +426,45 @@ class SmartTemplateGUIPlugin(Plugin):
                 self.messageBox.append(f'{self.get_ros_timestamp()} <span style="color: red;">Warning:</span> Desired value for {joint} is above the limit. Setting to maximum: {limits["max"]} mm')
             else:
                 corrected_values[joint] = value
-                
-        # Get values in the right order (must match controller's joint order)
-        x = corrected_values.get('horizontal_joint', 0.0)
-        y = corrected_values.get('insertion_joint', 0.0)
-        z = corrected_values.get('vertical_joint', 0.0)
-        
-        # Send to position controller directly
-        self.send_position_command([x, y, z])
-        self.node.get_logger().info(f'Sending position: x={x} mm, y={y} mm, z={z} mm')
-        self.messageBox.append(f'{self.get_ros_timestamp()} Sending position: x={x} mm, y={y} mm, z={z} mm')
-        
-        # In this ROS control approach, we don't get feedback about completion
-        # So we'll just mark robot as idle immediately
-        self.robot_idle = True
+        # Send corrected values
+        goal_msg = MoveAndObserve.Goal()
+        goal_msg.x = corrected_values.get('horizontal_joint', 0.0)
+        goal_msg.y = corrected_values.get('insertion_joint', 0.0)
+        goal_msg.z = corrected_values.get('vertical_joint', 0.0)
+        goal_msg.eps = 0.01  # Set appropriate epsilon value
+        self.node.get_logger().info(f'Sending goal: x={goal_msg.x} mm, y={goal_msg.y} mm, z={goal_msg.z} mm')
+        # Send goal asynchronously
+        self.send_goal_future = self.action_client.send_goal_async(goal_msg)
+        self.send_goal_future.add_done_callback(self.goal_response_callback)
+
+    def goal_response_callback(self, future):
+        try:
+            goal_handle = future.result()
+            if not goal_handle.accepted:
+                self.node.get_logger().info('Goal rejected :(')
+                return
+            self._get_result_future = goal_handle.get_result_async()
+            self._get_result_future.add_done_callback(self.get_result_callback)
+        except Exception as e:
+            self.node.get_logger().error(f'Error in goal_response_callback: {e}')
+
+    def get_result_callback(self, future):
+        try:
+            result = future.result().result
+            status = future.result().status
+            if status == GoalStatus.STATUS_SUCCEEDED:
+                self.node.get_logger().info('Goal succeeded')
+            else:
+                self.node.get_logger().info('Goal failed with status: {}'.format(status))
+            self.robot_idle = True  # Set robot status to IDLE
+        except Exception as e:
+            self.node.get_logger().error(f'Error in get_result_callback: {e}')
+
+    def feedback_callback(self, feedback_msg):
+        # Handle feedback if needed
+        feedback = feedback_msg.feedback
+        # For example, update GUI elements or log feedback
+        pass
 
     def shutdown_plugin(self):
         # Shutdown QTimer

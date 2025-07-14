@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro">
+
+  <!-- ZFrame parameters (zFrame pose with respect to SmartTemplate origin at the needle guide) -->
+  
+  <xacro:macro name="zframe" params="zframe_config">
+
+    <!-- Define zframe_position based on zframe_config -->
+
+    <xacro:if value="${zframe_config == 'default'}">  <!-- zframe based on geometry with 1 LEGO piece at the robot support -->
+      <xacro:property name="zframe_orientation" value="-1.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 -1.0"/> <!-- Rotation matrix (row by row) -->
+      <xacro:property name="zframe_position" value="0.0 0.0980 -0.1283"/> <!-- Position (x, y, z) --> 
+    </xacro:if>
+
+    <xacro:if value="${zframe_config == 'new'}">  <!-- zframe from registration experiment in AMIGO (2025-04-24)-->
+      <xacro:property name="zframe_orientation" value="-0.9990810696561544 -0.022101423357745315 0.03672187349962075 -0.020810007551375062 0.9991641103988661 0.035185134034339226 -0.037468819763572525 0.03438861763171322 -0.9987059378014156"/> <!-- Rotation matrix (row by row) --> 
+      <xacro:property name="zframe_position" value="0.001171932293919652 0.10549880638836385 -0.11120061509823658"/> <!-- Position (x, y, z) -->
+    </xacro:if>
+
+    <xacro:if value="${zframe_config == 'old'}"> <!-- zframe from SmartNeedle Animal Experiment in 221 Longwood (2023-12-20) -->
+      <xacro:property name="zframe_orientation" value="-1.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 -1.0"/> <!-- Rotation matrix (row by row) -->
+      <xacro:property name="zframe_position" value="0.0 0.0590 -0.1190"/> <!-- Position (x, y, z) -->
+    </xacro:if>
+
+    <!-- Combine position and orientation into a homogeneous matrix (just making things easier on 3D Slicer)-->
+    <xacro:property name="zframe_pose" value="
+      ${zframe_orientation.split(' ')[0]} ${zframe_orientation.split(' ')[1]} ${zframe_orientation.split(' ')[2]} ${zframe_position.split(' ')[0]}
+      ${zframe_orientation.split(' ')[3]} ${zframe_orientation.split(' ')[4]} ${zframe_orientation.split(' ')[5]} ${zframe_position.split(' ')[1]}
+      ${zframe_orientation.split(' ')[6]} ${zframe_orientation.split(' ')[7]} ${zframe_orientation.split(' ')[8]} ${zframe_position.split(' ')[2]}
+      0.0 0.0 0.0 1.0"/> <!-- Homogeneous transform (4x4 matrix) -->
+
+    <!-- Embed the zframe parameters -->
+    <custom_parameters>
+      <zframe_position value="${zframe_position}"/>
+      <zframe_orientation value="${zframe_orientation}"/>
+      <zframe_pose value="${zframe_pose}"/>
+    </custom_parameters>
+
+  </xacro:macro>
+
+</robot>

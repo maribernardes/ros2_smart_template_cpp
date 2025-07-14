@@ -1,9 +1,0 @@
-<library path="smart_template_controller">
-  <class name="smart_template_cpp/SmartTemplateController"
-         type="smart_template_cpp::SmartTemplateController"
-         base_class_type="controller_interface::ControllerInterface">
-    <description>
-      Controller for the Smart Template
-    </description>
-  </class>
-</library>

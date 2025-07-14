@@ -9,11 +9,11 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "geometry_msgs/msg/point_stamped.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
-#include "smart_template_cpp/srv/command.hpp"
-#include "smart_template_cpp/srv/move.hpp"
-#include "smart_template_cpp/srv/get_point.hpp"
-#include "smart_template_cpp/action/move_and_observe.hpp"
-#include "ros2_igtl_bridge/msg/transform.hpp"
+#include "smart_template_interfaces/srv/command.hpp"
+#include "smart_template_interfaces/srv/move.hpp"
+#include "smart_template_interfaces/srv/get_point.hpp"
+#include "smart_template_interfaces/action/move_and_observe.hpp"
+
 
 // Forward declaration for gclib
 typedef void* GCon;
@@ -24,7 +24,7 @@ namespace smart_template_cpp
 class SmartTemplateNode : public rclcpp::Node
 {
 public:
-  using MoveAndObserve = smart_template_cpp::action::MoveAndObserve;
+  using MoveAndObserve = smart_template_interfaces::action::MoveAndObserve;
   using GoalHandleMoveAndObserve = rclcpp_action::ServerGoalHandle<MoveAndObserve>;
 
   SmartTemplateNode();
@@ -37,9 +37,9 @@ private:
   rclcpp::TimerBase::SharedPtr timer_;
 
   // Service servers
-  rclcpp::Service<smart_template_cpp::srv::Command>::SharedPtr command_server_;
-  rclcpp::Service<smart_template_cpp::srv::Move>::SharedPtr move_server_;
-  rclcpp::Service<smart_template_cpp::srv::GetPoint>::SharedPtr current_position_server_;
+  rclcpp::Service<smart_template_interfaces::srv::Command>::SharedPtr command_server_;
+  rclcpp::Service<smart_template_interfaces::srv::Move>::SharedPtr move_server_;
+  rclcpp::Service<smart_template_interfaces::srv::GetPoint>::SharedPtr current_position_server_;
 
   // Action server
   rclcpp_action::Server<MoveAndObserve>::SharedPtr action_server_;
@@ -65,16 +65,16 @@ private:
   
   // Service callbacks
   void command_callback(
-    const std::shared_ptr<smart_template_cpp::srv::Command::Request> request,
-    std::shared_ptr<smart_template_cpp::srv::Command::Response> response);
+    const std::shared_ptr<smart_template_interfaces::srv::Command::Request> request,
+    std::shared_ptr<smart_template_interfaces::srv::Command::Response> response);
 
   void move_callback(
-    const std::shared_ptr<smart_template_cpp::srv::Move::Request> request,
-    std::shared_ptr<smart_template_cpp::srv::Move::Response> response);
+    const std::shared_ptr<smart_template_interfaces::srv::Move::Request> request,
+    std::shared_ptr<smart_template_interfaces::srv::Move::Response> response);
 
   void current_position_callback(
-    const std::shared_ptr<smart_template_cpp::srv::GetPoint::Request> request,
-    std::shared_ptr<smart_template_cpp::srv::GetPoint::Response> response);
+    const std::shared_ptr<smart_template_interfaces::srv::GetPoint::Request> request,
+    std::shared_ptr<smart_template_interfaces::srv::GetPoint::Response> response);
 
   // Action callbacks
   rclcpp_action::GoalResponse handle_goal(

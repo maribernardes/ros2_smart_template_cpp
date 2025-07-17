@@ -1,4 +1,5 @@
-#include "smart_template_cpp/smart_template_node.hpp"
+#include "smart_template_node.hpp"
+#include <rclcpp/executors/multi_threaded_executor.hpp>
 
 #include <chrono>
 #include <cmath>
@@ -10,6 +11,10 @@
 #include <gclib.h>
 #include <gclib_errors.h>
 #include <gclib_record.h>
+
+#include "tinyxml2.h"  // for URDF parsing
+#include <algorithm>
+#include <unordered_map>
 
 extern "C" {
   GReturn GOpen(GCStringIn connection_string, GCon* g_connection);
@@ -24,6 +29,17 @@ SmartTemplateNode::SmartTemplateNode()
 : Node("smart_template_node"),
   abort_(false)
 {
+  // Load joint info
+  declare_parameter<std::string>("robot_description", "");
+  std::string urdf;
+  get_parameter("robot_description", urdf);
+
+  if (!parse_joint_info_from_urdf(urdf)) {
+    RCLCPP_FATAL(this->get_logger(), "Failed to parse joint info from robot_description.");
+    rclcpp::shutdown();
+    return;
+  }
+
   // Initialize publishers
   publisher_stage_pose_ = this->create_publisher<geometry_msgs::msg::PointStamped>(
     "/stage/state/guide_pose", 10);
@@ -58,6 +74,8 @@ SmartTemplateNode::SmartTemplateNode()
     });
 
   // Initialize action server
+  action_callback_group_ = this->create_callback_group(
+    rclcpp::CallbackGroupType::MutuallyExclusive);  
   action_server_ = rclcpp_action::create_server<MoveAndObserve>(
     this,
     "/stage/move_and_observe",
@@ -66,26 +84,7 @@ SmartTemplateNode::SmartTemplateNode()
     std::bind(&SmartTemplateNode::handle_accepted, this, std::placeholders::_1));
   
   // Initialize Galil connection
-  try {
-    GOpen("192.168.0.99", &galil_);
-    
-    // Initial position is always set to (0,0,0)
-    char buffer[1024];
-    GSize bytes_returned;
-    GCommand(galil_, "DPA=0", buffer, sizeof(buffer), &bytes_returned);
-    GCommand(galil_, "DPB=0", buffer, sizeof(buffer), &bytes_returned);
-    GCommand(galil_, "DPC=0", buffer, sizeof(buffer), &bytes_returned);
-    GCommand(galil_, "PTA=1", buffer, sizeof(buffer), &bytes_returned);
-    GCommand(galil_, "PTB=1", buffer, sizeof(buffer), &bytes_returned);
-    GCommand(galil_, "PTC=1", buffer, sizeof(buffer), &bytes_returned);
-    
-    // Set joint names
-    joint_names_ = {"horizontal_joint", "insertion_joint", "vertical_joint"};
-    
-    RCLCPP_INFO(this->get_logger(), "SmartTemplate ready");
-  } catch (const std::exception & e) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to initialize Galil connection: %s", e.what());
-  }
+  initialize_galil();
 }
 
 SmartTemplateNode::~SmartTemplateNode()
@@ -95,221 +94,380 @@ SmartTemplateNode::~SmartTemplateNode()
   }
 }
 
-void SmartTemplateNode::timer_stage_pose_callback()
-{
+// Initialize Galil connection
+void SmartTemplateNode::initialize_galil() {
   try {
-    // Read guide position from robot motors
-    auto position = get_position();
-    
-    // Construct and publish robot message
-    auto msg = std::make_unique<geometry_msgs::msg::PointStamped>();
-    msg->header.stamp = this->now();
-    msg->header.frame_id = "stage";
-    msg->point.x = position[0];
-    msg->point.y = position[1];
-    msg->point.z = position[2];
-    publisher_stage_pose_->publish(std::move(msg));
-    
-    // Update and publish joint_state message
-    auto joint_state_msg = std::make_unique<sensor_msgs::msg::JointState>();
-    joint_state_msg->header.stamp = this->now();
-    joint_state_msg->name = joint_names_;
-    joint_state_msg->position = {0.001 * position[0], 0.001 * position[1], 0.001 * position[2]}; // Convert from mm to m
-    publisher_joint_states_->publish(std::move(joint_state_msg));
-  } catch (const std::exception & e) {
-    RCLCPP_ERROR(this->get_logger(), "Error in timer callback: %s", e.what());
+    GOpen("192.168.0.99", &galil_);
+    char buffer[1024];
+    GSize bytes_returned;
+    // Zero encoder positions
+    GCommand(galil_, "DPA=0", buffer, sizeof(buffer), &bytes_returned);
+    GCommand(galil_, "DPB=0", buffer, sizeof(buffer), &bytes_returned);
+    GCommand(galil_, "DPC=0", buffer, sizeof(buffer), &bytes_returned);
+    // Set PTA/B/C = 1 (position tracking)
+    GCommand(galil_, "PTA=1", buffer, sizeof(buffer), &bytes_returned);
+    GCommand(galil_, "PTB=1", buffer, sizeof(buffer), &bytes_returned);
+    GCommand(galil_, "PTC=1", buffer, sizeof(buffer), &bytes_returned);
+    RCLCPP_INFO(this->get_logger(), "Galil connection initialized successfully.");
+  } catch (const std::exception& e) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to initialize Galil connection: %s", e.what());
   }
 }
 
-std::vector<double> SmartTemplateNode::get_position()
-{
+//#### Kinematic model ###################################################
+
+// Forward-kinematics funtion
+std::array<double, 3> SmartTemplateNode::fk_model(const std::vector<double>& joints_mm) const {
+  if (joints_mm.size() != 3) {
+    RCLCPP_ERROR(this->get_logger(), "FK: Expected 3 joint values, got %zu", joints_mm.size());
+    return {0.0, 0.0, 0.0};
+  }
+  // Order: [horizontal, insertion, vertical]
+  double x = joints_mm[0];
+  double y = joints_mm[1];
+  double z = joints_mm[2];
+  return {x, y, z};
+}
+
+// Inverse-kinematics function
+std::vector<double> SmartTemplateNode::ik_model(const std::array<double, 3>& position_mm) const {
+  // Directly map Cartesian [x, y, z] to joint values
+  std::vector<double> joints_mm = {
+    position_mm[0],  // horizontal
+    position_mm[1],  // insertion
+    position_mm[2]   // vertical
+  };
+  // Clamp to joint limits
+  std::vector<double> safe_joints = check_limits(joints_mm);
+  // Return as array
+  return { safe_joints[0], safe_joints[1], safe_joints[2] };
+}
+
+//#### Internal functions ###################################################
+
+// Parse joints info from robot_description
+bool SmartTemplateNode::parse_joint_info_from_urdf(const std::string& urdf_str) {
+  tinyxml2::XMLDocument doc;
+  if (doc.Parse(urdf_str.c_str()) != tinyxml2::XML_SUCCESS) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to parse URDF XML.");
+    return false;
+  }
+  auto* robot = doc.FirstChildElement("robot");
+  if (!robot) {
+    RCLCPP_ERROR(this->get_logger(), "No <robot> element found in URDF.");
+    return false;
+  }
+  std::unordered_map<std::string, std::string> joint_channels;
+  std::unordered_map<std::string, std::pair<double, double>> joint_limits;
+  std::unordered_map<std::string, double> joint_mmtocount;
+  for (auto* joint = robot->FirstChildElement("joint"); joint; joint = joint->NextSiblingElement("joint")) {
+    const char* name = joint->Attribute("name");
+    if (!name) continue;
+    std::string joint_name(name);
+    auto* channel = joint->FirstChildElement("channel");
+    auto* limit = joint->FirstChildElement("limit");
+    auto* mm_elem = joint->FirstChildElement("mm_to_count");
+    if (channel && channel->GetText()) {
+      joint_channels[joint_name] = channel->GetText();
+    }
+    if (limit) {
+      double lower = limit->DoubleAttribute("lower") * 1000.0;  // m to mm
+      double upper = limit->DoubleAttribute("upper") * 1000.0;
+      joint_limits[joint_name] = {lower, upper};
+    }
+    if (mm_elem && mm_elem->GetText()) {
+      joint_mmtocount[joint_name] = std::stod(mm_elem->GetText());
+    }
+  }
+  // Sort by channel name (for consistency)
+  std::vector<std::pair<std::string, std::string>> sorted;
+  for (const auto& [name, ch] : joint_channels) {
+    sorted.emplace_back(name, ch);
+  }
+  std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) {
+    return a.second < b.second;
+  });
+  for (const auto& [name, ch] : sorted) {
+    double lower = joint_limits.count(name) ? joint_limits[name].first : -100.0;
+    double upper = joint_limits.count(name) ? joint_limits[name].second : 100.0;
+    double mm_to_count = joint_mmtocount.count(name) ? joint_mmtocount[name] : 1.0;
+    joint_info_.add(name, ch, lower, upper, mm_to_count);
+    RCLCPP_INFO(this->get_logger(), "Joint %s — Channel: %s, Limits: [%.2f, %.2f] mm, mm_to_count: %.3f",
+                name.c_str(), ch.c_str(), lower, upper, mm_to_count);
+  }
+  return true;
+}
+
+// Get current robot joint values [mm]
+std::vector<double> SmartTemplateNode::get_joints() {
   try {
-    std::vector<double> position(3, 0.0);
     char buffer[1024];
     GSize bytes_returned;
+    // Query encoder positions from Galil
     GCommand(galil_, "TP", buffer, sizeof(buffer), &bytes_returned);
-    
-    // Parse the response
-    std::vector<double> values;
-    char * token = strtok(buffer, ",");
-    while (token != nullptr) {
-      values.push_back(std::stod(token));
+    // Parse comma-separated counts
+    std::vector<double> counts;
+    char* token = strtok(buffer, ",");
+    while (token != nullptr && counts.size() < joint_info_.names.size()) {
+      counts.push_back(static_cast<double>(std::stoi(token)));
       token = strtok(nullptr, ",");
     }
-    
-    // WARNING: Galil channel B inverted, that is why the value is negative (to be verified)
-    if (values.size() >= 3) {
-      position[0] = values[0] * COUNT_2_MM_X; // CHANNEL A (horizontal)
-      position[1] = values[2] * COUNT_2_MM_Y; // CHANNEL C (insertion)
-      position[2] = values[1] * COUNT_2_MM_Z; // CHANNEL B (vertical)
+    if (counts.size() != joint_info_.names.size()) {
+      RCLCPP_WARN(this->get_logger(),
+                  "Expected %zu joints, got %zu",
+                  joint_info_.names.size(), counts.size());
+      return std::vector<double>(joint_info_.names.size(), 0.0);
     }
-    
-    return position;
-  } catch (const std::exception & e) {
-    RCLCPP_ERROR(this->get_logger(), "Error getting position: %s", e.what());
-    return {0.0, 0.0, 0.0};
+    // Convert counts to mm
+    std::vector<double> joint_values_mm(joint_info_.names.size(), 0.0);
+    for (size_t i = 0; i < joint_info_.names.size(); ++i) {
+      joint_values_mm[i] = counts[i] * joint_info_.count_to_mm[i];
+    }
+    return joint_values_mm;
+  } catch (const std::exception& e) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to get joint values: %s", e.what());
+    return std::vector<double>(joint_info_.names.size(), 0.0);
   }
 }
 
-std::vector<double> SmartTemplateNode::tell_error()
-{
+// Get current joints error [mm]
+std::vector<double> SmartTemplateNode::get_joints_err() {
   try {
-    std::vector<double> errors(3, 0.0);
     char buffer[1024];
     GSize bytes_returned;
+    // Query encoder positions from Galil
     GCommand(galil_, "TE", buffer, sizeof(buffer), &bytes_returned);
-    
-    // Parse the response
-    std::vector<int> values;
-    char * token = strtok(buffer, ",");
-    while (token != nullptr) {
-      values.push_back(std::stoi(token));
+    // Parse comma-separated counts
+    std::vector<double> counts;
+    char* token = strtok(buffer, ",");
+    while (token != nullptr && counts.size() < joint_info_.names.size()) {
+      counts.push_back(static_cast<double>(std::stoi(token)));
       token = strtok(nullptr, ",");
     }
-    
-    if (values.size() >= 3) {
-      errors[0] = values[0]; // X error
-      errors[1] = values[2]; // Y error
-      errors[2] = values[1]; // Z error
+    if (counts.size() != joint_info_.names.size()) {
+      RCLCPP_WARN(this->get_logger(),
+                  "Expected %zu joints, got %zu",
+                  joint_info_.names.size(), counts.size());
+      return std::vector<double>(joint_info_.names.size(), 0.0);
     }
-    
-    RCLCPP_INFO(this->get_logger(), "errX=%f, errY=%f, errZ=%f", errors[0], errors[1], errors[2]);
-    return errors;
-  } catch (const std::exception & e) {
-    RCLCPP_ERROR(this->get_logger(), "Error getting position error: %s", e.what());
-    return {0.0, 0.0, 0.0};
+    // Convert counts to mm
+    std::vector<double> joint_err_mm(joint_info_.names.size(), 0.0);
+    for (size_t i = 0; i < joint_info_.names.size(); ++i) {
+      joint_err_mm[i] = counts[i] * joint_info_.count_to_mm[i];
+    }
+    std::ostringstream oss;
+    oss << "Joint errors [mm]: ";
+    for (double err : joint_err_mm) {
+      oss << std::fixed << std::setprecision(3) << err << " ";
+    }
+    RCLCPP_DEBUG(this->get_logger(), "%s", oss.str().c_str());
+    return joint_err_mm;
+  } catch (const std::exception& e) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to get joint errors: %s", e.what());
+    return std::vector<double>(joint_info_.names.size(), 0.0);
   }
 }
 
+// Get current robot position (end-effector)
+std::array<double, 3> SmartTemplateNode::get_position() {
+  std::vector<double> joints_mm = get_joints();
+  if (joints_mm.empty()) {
+    RCLCPP_WARN(this->get_logger(), "get_position(): No joint data available");
+    return {0.0, 0.0, 0.0};
+  }
+  return fk_model(joints_mm);
+}
+
+// Get error (euclidean distance) between two 3D coordinates
+double SmartTemplateNode::error_3d(const std::array<double, 3>& a, const std::array<double, 3>& b) const {
+  double dx = a[0] - b[0];
+  double dy = a[1] - b[1];
+  double dz = a[2] - b[2];
+  return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+// Abort motion
 void SmartTemplateNode::abort_motion()
 {
   try {
     char buffer[1024];
     GSize bytes_returned;
     GCommand(galil_, "SH", buffer, sizeof(buffer), &bytes_returned);
-    RCLCPP_INFO(this->get_logger(), "ABORT");
-    abort_ = true;
+    RCLCPP_WARN(this->get_logger(), "ABORT sent to Galil");
   } catch (const std::exception & e) {
     RCLCPP_ERROR(this->get_logger(), "Error aborting motion: %s", e.what());
   }
 }
 
-void SmartTemplateNode::send_movement(const std::vector<double> & goal)
-{
-  send_movement_in_counts(goal[0] * MM_2_COUNT_X, "A"); // X = CH_A
-  send_movement_in_counts(goal[2] * MM_2_COUNT_Z, "B"); // Z = CH_B
-  send_movement_in_counts(goal[1] * MM_2_COUNT_Y, "C"); // Y = CH_C
+//Check joints limits
+std::vector<double> SmartTemplateNode::check_limits(const std::vector<double>& joint_values) const {
+  if (joint_values.size() != joint_info_.names.size()) {
+    RCLCPP_ERROR(this->get_logger(), "check_limits: joint count mismatch (%zu != %zu)",
+                 joint_values.size(), joint_info_.names.size());
+    throw std::runtime_error("check_limits: vector size mismatch");
+  }
+  std::vector<double> capped_values;
+  for (size_t i = 0; i < joint_values.size(); ++i) {
+    double lower = joint_info_.limits_lower[i];
+    double upper = joint_info_.limits_upper[i];
+    double value = joint_values[i];
+    if (value < lower || value > upper) {
+      RCLCPP_WARN(this->get_logger(),
+                  "%s value %.2f mm out of bounds [%.2f, %.2f] — clipping.",
+                  joint_info_.names[i].c_str(), value, lower, upper);
+    }
+    capped_values.push_back(std::clamp(value, lower, upper));
+  }
+  return capped_values;
 }
 
-double SmartTemplateNode::check_limits(double x, const std::string & channel)
+// Sends a movement command to all joints based on the goal [x, y, z] in mm.
+void SmartTemplateNode::position_control(const std::array<double, 3> & goal)
 {
-  if (channel == "C") {
-    return x;
+  if (abort_) {
+    RCLCPP_WARN(this->get_logger(), "Motion command ignored: ABORT active");
+    return;
   }
-  
-  if (x > SAFE_LIMIT * MM_2_COUNT_X) {
-    RCLCPP_INFO(this->get_logger(), "Limit reach at axis %s", channel.c_str());
-    return SAFE_LIMIT * MM_2_COUNT_X;
-  } else if (x < -SAFE_LIMIT * MM_2_COUNT_X) {
-    RCLCPP_INFO(this->get_logger(), "Limit reach at axis %s", channel.c_str());
-    return -SAFE_LIMIT * MM_2_COUNT_X;
+  // Compute joint values from Cartesian target
+  std::vector<double> joints_mm = ik_model(goal);
+  // Enforce joint limits
+  joints_mm = check_limits(joints_mm);
+  // Convert mm to encoder counts and send to Galil
+  for (size_t i = 0; i < joint_info_.names.size(); ++i) {
+    int count_value = static_cast<int>(std::round(joints_mm[i] * joint_info_.mm_to_count[i]));
+    std::string command = "PA" + joint_info_.channels[i] + "=" + std::to_string(count_value);
+    try {
+      char buffer[1024];
+      GSize bytes_returned;
+      GCommand(galil_, command.c_str(), buffer, sizeof(buffer), &bytes_returned);
+      RCLCPP_INFO(this->get_logger(), "Sent to Galil: %s", command.c_str());
+    } catch (const std::exception & e) {
+      RCLCPP_ERROR(this->get_logger(),
+                   "Failed to send to channel %s: %s",
+                   joint_info_.channels[i].c_str(), e.what());
+    }
   }
-  
-  return x;
 }
 
-bool SmartTemplateNode::send_movement_in_counts(double x, const std::string & channel)
+//#### Listening callbacks ###################################################
+
+// Publish robot joints and end-effector pose
+void SmartTemplateNode::timer_stage_pose_callback() {
+  // Get current joint values [mm]
+  std::vector<double> joints_mm = get_joints();
+  if (joints_mm.empty()) {
+    RCLCPP_WARN(this->get_logger(), "Failed to read joint positions.");
+    return;
+  }
+  // Forward kinematics to get stage position
+  std::array<double, 3> position = fk_model(joints_mm);
+  // Publish stage pose
+  geometry_msgs::msg::PointStamped msg;
+  msg.header.stamp = this->now();
+  msg.header.frame_id = "stage";
+  msg.point.x = position[0];
+  msg.point.y = position[1];
+  msg.point.z = position[2];
+  publisher_stage_pose_->publish(msg);
+  RCLCPP_DEBUG(this->get_logger(),
+               "stage_pose [mm]: x=%.2f, y=%.2f, z=%.2f in %s frame",
+               msg.point.x, msg.point.y, msg.point.z,
+               msg.header.frame_id.c_str());
+  // Publish joint states (converted to meters)
+  sensor_msgs::msg::JointState joint_msg;
+  joint_msg.header.stamp = this->now();
+  joint_msg.name = joint_info_.names;
+  joint_msg.position.resize(joints_mm.size());
+  for (size_t i = 0; i < joints_mm.size(); ++i) {
+    joint_msg.position[i] = joints_mm[i] * 0.001;  // mm to m
+  }
+  publisher_joint_states_->publish(joint_msg);
+}
+
+//#### Service functions ###################################################
+
+// Current position service request
+void SmartTemplateNode::current_position_callback(
+  const std::shared_ptr<smart_template_interfaces::srv::GetPoint::Request> /*request*/,
+  std::shared_ptr<smart_template_interfaces::srv::GetPoint::Response> response)
 {
+  RCLCPP_DEBUG(this->get_logger(), "Received current position request");
   try {
-    x = check_limits(x, channel);
-    std::string command = "PA" + channel + "=" + std::to_string(static_cast<int>(x));
-    char buffer[1024];
-    GSize bytes_returned;
-    GCommand(galil_, command.c_str(), buffer, sizeof(buffer), &bytes_returned);
-    RCLCPP_INFO(this->get_logger(), "Sent to Galil %s", command.c_str());
-    return true;
+    auto current_position = get_position();
+    response->valid = true;
+    response->x = current_position[0];
+    response->y = current_position[1];
+    response->z = current_position[2];
   } catch (const std::exception & e) {
-    RCLCPP_ERROR(this->get_logger(), "Error sending movement: %s", e.what());
-    return false;
+    RCLCPP_ERROR(this->get_logger(), "Error getting current position: %s", e.what());
+    response->valid = false;
   }
 }
 
-double SmartTemplateNode::distance_positions(
-  const std::vector<double> & goal, const std::vector<double> & position)
-{
-  return std::sqrt(
-    std::pow(goal[0] - position[0], 2) +
-    std::pow(goal[1] - position[1], 2) +
-    std::pow(goal[2] - position[2], 2));
-}
-
+// Command service request
 void SmartTemplateNode::command_callback(
   const std::shared_ptr<smart_template_interfaces::srv::Command::Request> request,
   std::shared_ptr<smart_template_interfaces::srv::Command::Response> response)
 {
   RCLCPP_INFO(this->get_logger(), "Received command request: %s", request->command.c_str());
-  
   if (request->command == "HOME") {
-    std::vector<double> goal = {0.0, 0.0, 0.0};
-    send_movement(goal);
+    std::array<double, 3> goal = {0.0, 0.0, 0.0};
+    position_control(goal);
     response->response = "Command HOME sent";
   } else if (request->command == "RETRACT") {
     auto position = get_position();
-    std::vector<double> goal = {position[0], 0.0, position[2]};
-    send_movement(goal);
+    std::array<double, 3> goal = {position[0], 0.0, position[2]};
+    position_control(goal);
     response->response = "Command RETRACT sent";
   } else if (request->command == "ABORT") {
+    abort_ = true;
     abort_motion();
     response->response = "Command ABORT sent";
-  } else {
+  } else if (request->command == "RESUME") {
+      abort_ = false;
+      response->response = "Command RESUME sent";
+      RCLCPP_INFO(this->get_logger(), "System resumed. Motion re-enabled.");
+    } else {
     response->response = "Unknown command: " + request->command;
   }
 }
 
+// Move robot service request
 void SmartTemplateNode::move_callback(
   const std::shared_ptr<smart_template_interfaces::srv::Move::Request> request,
   std::shared_ptr<smart_template_interfaces::srv::Move::Response> response)
 {
   RCLCPP_INFO(this->get_logger(), "Received move request: x=%f, y=%f, z=%f, eps=%f",
     request->x, request->y, request->z, request->eps);
-  
   try {
     if (request->eps < 0.0) {
       throw std::invalid_argument("Epsilon cannot be negative");
     }
-    
-    std::vector<double> goal = {request->x, request->y, request->z};
-    send_movement(goal);
+    std::array<double, 3> goal = {request->x, request->y, request->z};
+    position_control(goal);
     response->response = "Success: Robot moved to the specified position.";
   } catch (const std::exception & e) {
     response->response = "Error: " + std::string(e.what());
   }
 }
 
-void SmartTemplateNode::current_position_callback(
-  const std::shared_ptr<smart_template_interfaces::srv::GetPoint::Request> /*request*/,
-  std::shared_ptr<smart_template_interfaces::srv::GetPoint::Response> response)
-{
-  RCLCPP_DEBUG(this->get_logger(), "Received current position request");
-  
-  try {
-    auto position = get_position();
-    response->valid = true;
-    response->x = position[0];
-    response->y = position[1];
-    response->z = position[2];
-  } catch (const std::exception & e) {
-    RCLCPP_ERROR(this->get_logger(), "Error getting position: %s", e.what());
-    response->valid = false;
-  }
-}
+//#### Action functions ###################################################
 
 rclcpp_action::GoalResponse SmartTemplateNode::handle_goal(
   const rclcpp_action::GoalUUID & /*uuid*/,
   std::shared_ptr<const MoveAndObserve::Goal> /*goal*/)
 {
-  RCLCPP_DEBUG(this->get_logger(), "Received goal request");
-  // This server allows multiple goals in parallel
+  // Lock mutex and check if there is active goal
+  std::lock_guard<std::mutex> lock(goal_mutex_);
+  if (abort_) {
+    RCLCPP_WARN(this->get_logger(), "Rejecting goal: ABORT active");
+    return rclcpp_action::GoalResponse::REJECT;
+  }
+  if (current_goal_handle_ && current_goal_handle_->is_active()) {
+    RCLCPP_WARN(this->get_logger(), "Preempting current goal");
+    current_goal_handle_->abort(std::make_shared<MoveAndObserve::Result>());
+  }
+  RCLCPP_INFO(this->get_logger(), "Goal accepted and will be executed");
   return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
 }
 
@@ -320,93 +478,120 @@ rclcpp_action::CancelResponse SmartTemplateNode::handle_cancel(
   return rclcpp_action::CancelResponse::ACCEPT;
 }
 
-void SmartTemplateNode::handle_accepted(
-  const std::shared_ptr<GoalHandleMoveAndObserve> goal_handle)
+void SmartTemplateNode::handle_accepted(const std::shared_ptr<GoalHandleMoveAndObserve> goal_handle)
 {
-  // Create a new thread to execute the action
-  std::thread{std::bind(&SmartTemplateNode::execute_goal, this, std::placeholders::_1), goal_handle}.detach();
+  {
+    // Lock mutex
+    std::lock_guard<std::mutex> lock(goal_mutex_);
+    // Abort existing goal if still active
+    if (current_goal_handle_ && current_goal_handle_->is_active()) {
+      RCLCPP_WARN(this->get_logger(), "Preempting previous goal");
+      auto result = std::make_shared<MoveAndObserve::Result>();
+      result->error_code = 2;  // Optional: your code for 'preempted'
+      current_goal_handle_->abort(result);
+    }
+    // Cancel previous goal timer
+    if (goal_timer_) {
+      goal_timer_->cancel();
+    }
+    current_goal_handle_ = goal_handle;
+  }
+  RCLCPP_INFO(this->get_logger(), "New goal accepted, scheduling execution...");
+  auto timer = this->create_wall_timer(
+    std::chrono::milliseconds(1),
+    [this, goal_handle]() {
+      if (goal_timer_) goal_timer_->cancel();  // Cleanup after firing
+      this->execute_goal(goal_handle);
+    },
+    action_callback_group_);
+  goal_timer_ = timer;
 }
 
 void SmartTemplateNode::execute_goal(
   const std::shared_ptr<GoalHandleMoveAndObserve> goal_handle)
 {
   RCLCPP_DEBUG(this->get_logger(), "Executing move_and_observe goal");
-  
+  // Cancel old goals if existant
+  {
+    std::lock_guard<std::mutex> lock(goal_mutex_);
+    if (goal_handle != current_goal_handle_) {
+      RCLCPP_WARN(this->get_logger(), "Skipping execution of outdated goal");
+      return;
+    }
+  }  
   auto result = std::make_shared<MoveAndObserve::Result>();
   auto feedback = std::make_shared<MoveAndObserve::Feedback>();
-  
-  // Check if goal is being canceled
-  if (goal_handle->is_canceling()) {
-    goal_handle->canceled(result);
-    RCLCPP_INFO(this->get_logger(), "Goal canceled");
-    return;
-  }
-  
   // Get goal parameters
   const auto goal = goal_handle->get_goal();
-  std::vector<double> goal_position = {goal->x, goal->y, goal->z};
+  std::array<double, 3> goal_position = {goal->x, goal->y, goal->z};
   RCLCPP_INFO(this->get_logger(), "Goal: x=%f, y=%f, z=%f, eps=%f", goal->x, goal->y, goal->z, goal->eps);
-  
   // Send movement command
-  send_movement(goal_position);
-  
+  position_control(goal_position);
   // Start timeout timer
   auto start_time = this->now();
   const std::chrono::seconds timeout(static_cast<int>(TIMEOUT));
   result->error_code = 0;
-  abort_ = false;
-  
   // Feedback loop (while goal is not reached or timeout)
   while (rclcpp::ok()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    
-    // Check for cancelation
-    if (goal_handle->is_canceling()) {
-      abort_motion();
-      goal_handle->canceled(result);
-      RCLCPP_INFO(this->get_logger(), "Goal canceled during execution");
-      return;
-    }
-    
-    // Check current position error
-    auto err = tell_error();
-    
     // Check if aborted
     if (abort_) {
       goal_handle->abort(result);
       result->error_code = 2; // abort
-      RCLCPP_INFO(this->get_logger(), "Goal aborted");
-      abort_ = false;
+      RCLCPP_WARN(this->get_logger(), "Goal aborted");
+      break;
+    }    
+    // Check for cancelation
+    if (goal_handle->is_canceling()) {
+      abort_motion(); // Not setting abort_ to true (no need to resume, just stopping)
+      result->error_code = 2; // abort
+      goal_handle->canceled(result);
+      RCLCPP_WARN(this->get_logger(), "Goal canceled during execution");
       break;
     }
-    
-    // Check if reached target
-    if (std::abs(err[0]) <= goal->eps * ERROR_GAIN &&
-        std::abs(err[1]) <= goal->eps * ERROR_GAIN &&
-        std::abs(err[2]) <= goal->eps * ERROR_GAIN) {
-      goal_handle->succeed(result);
+    // Check current joints error
+    std::vector<double> err_joints = get_joints_err();
+    bool goal_reached = true;
+    for (double e : err_joints) {
+      if (std::abs(e) > goal->eps) {
+        goal_reached = false;
+        break;
+      }
+    }
+    if (goal_reached) {
       result->error_code = 0;
+      goal_handle->succeed(result);    
       RCLCPP_INFO(this->get_logger(), "Goal reached successfully");
       break;
     }
-    
+    // Publish feedback
+    auto current_position = get_position();
+    feedback->x = current_position[0];
+    feedback->y = current_position[1];
+    feedback->z = current_position[2];
+    feedback->error = error_3d(goal_position, current_position);
+    goal_handle->publish_feedback(feedback);
     // Check for timeout
     if ((this->now() - start_time) > timeout) {
-      goal_handle->abort(result);
+      abort_motion(); // Not setting abort_ to true (no need to resume, just stopping)
       result->error_code = 1; // timeout
-      RCLCPP_INFO(this->get_logger(), "Goal timed out");
+      goal_handle->abort(result);
+      RCLCPP_WARN(this->get_logger(), "Goal timed out");
       break;
     }
   }
-  
-  // Set final result values
-  auto position = get_position();
-  result->x = position[0];
-  result->y = position[1];
-  result->z = position[2];
-  result->error = distance_positions(goal_position, position);
+  // Publish result
+  auto current_position = get_position();
+  result->x = current_position[0];
+  result->y = current_position[1];
+  result->z = current_position[2];
+  result->error = error_3d(goal_position, current_position);
   result->time = (this->now() - start_time).seconds();
-  
+  // Cleanup: reset current goal handle
+  {
+    std::lock_guard<std::mutex> lock(goal_mutex_);
+    current_goal_handle_.reset();
+  }  
   RCLCPP_INFO(this->get_logger(), "Finished move_and_observe action");
 }
 
@@ -415,15 +600,11 @@ void SmartTemplateNode::execute_goal(
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  
   auto smart_template_node = std::make_shared<smart_template_cpp::SmartTemplateNode>();
-  
   // Use a multithreaded executor to enable processing goals concurrently
   rclcpp::executors::MultiThreadedExecutor executor;
   executor.add_node(smart_template_node);
-  
   executor.spin();
-  
   rclcpp::shutdown();
   return 0;
 }

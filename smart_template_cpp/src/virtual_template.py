@@ -121,7 +121,7 @@ class VirtualSmartTemplate(Node):
         self.joints_sim_step = np.array([0.25, 0.5, 0.25])
 
         # Flag to abort command
-        self.abort = False   
+        self.abort = False
 
 #### Kinematic model ###################################################
 
@@ -217,15 +217,13 @@ class VirtualSmartTemplate(Node):
     # Calculate euclidean error
     def error_3d(self, err: np.ndarray) -> float:
         return float(np.linalg.norm(err))
-    
-    # TODO: Check best implementation for this using Galil
-    # Abort any ongoing motion (stop where it is)
-    def abort_motion(self):
-        self.abort = True
-        self.galil.GCommand('SH')
-        self.get_logger().info('ABORT')
 
-    # Checks each joint value to be withing the joint's defined limits
+    def abort_motion(self):
+        self.get_logger().info('ABORT')
+        # No need to do anything else in simulated robot
+        # In real robot, send ABORT to Galil controller
+
+    # Checks each joint value to be within the joint's defined limits
     # The order of joint_values must match self.joints.names
     def check_limits(self, joint_values: list[float]) -> list[float]:
         if len(joint_values) != len(self.joints.names):
@@ -245,6 +243,9 @@ class VirtualSmartTemplate(Node):
 
     # Sends a movement command to all joints based on the goal [x, y, z] in mm.
     def position_control(self, goal: np.ndarray):
+        if self.abort:
+            self.get_logger().warn('Motion command ignored: ABORT active')
+            return
         self.desired_joints = self.ik_model(goal) 
         self.desired_joints = self.check_limits(self.desired_joints)      
 
@@ -259,6 +260,9 @@ class VirtualSmartTemplate(Node):
         def motion_loop():
             self.get_logger().debug("Starting background motion emulation loop")
             while True:
+                if self.abort:
+                    self.get_logger().warn("Motion emulation aborted")
+                    break
                 self.emulate_motion()
                 joints_err = self.get_joints_err()
                 if all(abs(e) < eps for e in joints_err):
@@ -293,7 +297,10 @@ class VirtualSmartTemplate(Node):
             self.position_control(goal)
             self.start_emulated_motion_until_converged()
         elif command == 'ABORT':
+            self.abort = True
             self.abort_motion()
+        elif command == 'RESUME':
+            self.abort = False
 
 #### Publishing callbacks ###################################################
 
@@ -351,7 +358,10 @@ class VirtualSmartTemplate(Node):
             self.start_emulated_motion_until_converged()
             response.response = 'Command RETRACT sent'
         elif command == 'ABORT':
+            self.abort = True
             self.abort_motion()
+        elif command == 'RESUME':
+            self.abort = False
         return response
 
     # Move robot
@@ -376,28 +386,25 @@ class VirtualSmartTemplate(Node):
         self._action_server.destroy()
         super().destroy_node()
 
-    # Accept or reject a client request to begin an action
-    # This server allows multiple goals in parallel
+    # Receive a request for move_and_observe action
     def move_and_observe_callback(self, goal_request):
-        self.get_logger().debug('Received goal request')
+        if self.abort:
+                self.get_logger().warn('Rejecting goal: ABORT active')
+                return GoalResponse.REJECT
+        self.get_logger().debug('"Goal accepted and will be executed"')
         return GoalResponse.ACCEPT
 
-    # Accept or reject a client request to cancel an action
+    # Cancel a client request to cancel an action
     def cancel_move_and_observe_callback(self, goal_handle):
         self.get_logger().info('Received cancel request')
         return CancelResponse.ACCEPT
-    
+        
     # Execute a goal
     async def execute_move_and_observe_callback(self, goal_handle):
         self.get_logger().debug('Executing move_and_observe...')
         feedback = MoveAndObserve.Feedback()
         result = MoveAndObserve.Result()
         # Start executing the action
-        if goal_handle.is_cancel_requested:
-            goal_handle.canceled()
-            self.get_logger().info('Goal canceled')
-            return result
-        # Get goal and send
         my_goal = goal_handle.request
         goal = [my_goal.x, my_goal.y, my_goal.z]
         self.get_logger().info(' Move to %s' %(goal))
@@ -409,10 +416,17 @@ class VirtualSmartTemplate(Node):
         while True:
             self.emulate_motion()
             time.sleep(0.1)
+            # Check if aborted
             if self.abort == True:
                 goal_handle.abort()
                 result.error_code = 2   # abort
-                self.abort = False
+                self.get_logger().info('Goal aborted')
+                break
+            # Check if action canceled
+            if goal_handle.is_cancel_requested:
+                self.abort_motion()     # Not setting abort to true (no need to resume, just stopping)
+                goal_handle.canceled()
+                self.get_logger().info('Goal canceled')
                 break
             # Check if reached target
             joints_err = self.get_joints_err()
@@ -420,7 +434,15 @@ class VirtualSmartTemplate(Node):
                 goal_handle.succeed()
                 result.error_code = 0
                 break
+            # Publish feedback
+            position = self.get_position()
+            feedback.x = position[0]
+            feedback.y = position[1]
+            feedback.z = position[2]
+            feedback.error = self.error_3d(position-goal)
+            # Check if timeout
             if (time.time()-start_time) >= TIMEOUT:
+                self.abort_motion()     # Not setting abort to true (no need to resume, just stopping)
                 goal_handle.abort()
                 result.error_code = 1   # timeout
                 break

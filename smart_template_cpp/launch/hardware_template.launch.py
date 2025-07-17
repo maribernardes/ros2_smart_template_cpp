@@ -38,6 +38,12 @@ def generate_launch_description():
         package='controller_manager',
         executable='ros2_control_node',
         parameters=[
+            {
+                "robot_description": ParameterValue(
+                    LaunchConfiguration("robot_description"),
+                    value_type=str
+                )
+            },
             controller_yaml
         ],
         output='screen'
@@ -72,9 +78,9 @@ def generate_launch_description():
     )  
 
     return LaunchDescription([
-        controllers_arg,
-        controller_manager_node,
-        joint_state_broadcaster_spawner,
-        position_controller_spawner,
+        #controllers_arg,
+        #controller_manager_node,
+        #joint_state_broadcaster_spawner,
+        #position_controller_spawner,
         robot
     ])

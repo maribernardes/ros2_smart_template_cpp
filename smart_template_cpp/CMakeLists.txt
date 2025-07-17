@@ -15,6 +15,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
+
 # Find smart_template packages
 find_package(smart_template_description REQUIRED) # URDF
 find_package(smart_template_interfaces REQUIRED)  # Messages
@@ -44,6 +45,7 @@ ament_target_dependencies(smart_template_node
 
 target_link_libraries(smart_template_node
   gclib
+  tinyxml2
 )
 
 # Install Python GUI module

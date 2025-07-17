@@ -320,6 +320,20 @@ class SmartTemplateGUIPlugin(Plugin):
         main_layout.addWidget(messageBox_label)
         main_layout.addWidget(self.messageBox)
 
+        # ABORT and RESUME buttons below debugger
+        abort_resume_layout = QHBoxLayout()
+        #abort_resume_layout.setAlignment(Qt.AlignCenter)
+        abort_button = QPushButton('ABORT')
+        resume_button = QPushButton('RESUME')
+
+        # Connect the buttons to respective service requests
+        abort_button.clicked.connect(lambda: self.send_service_request('ABORT'))
+        resume_button.clicked.connect(lambda: self.send_service_request('RESUME'))
+
+        abort_resume_layout.addWidget(abort_button)
+        abort_resume_layout.addWidget(resume_button)
+        main_layout.addLayout(abort_resume_layout)
+
         # Set layout to the widget
         self._widget.setLayout(main_layout)
 
@@ -404,7 +418,7 @@ class SmartTemplateGUIPlugin(Plugin):
     def get_response_callback(self, future):
         try:
             response = future.result()
-            self.node.get_logger().info('Service call sucessful: %s' %(response.response)) 
+            self.node.get_logger().info('Service request: %s' %(response.response)) 
         except Exception as e:
             self.node.get_logger().error('Service call failed: %r' %(e,))
         self.robot_idle = True
@@ -416,6 +430,7 @@ class SmartTemplateGUIPlugin(Plugin):
         # Validate and correct desired_joint_values against joint_limits
         for joint, value in desired_joint_values.items():
             limits = self.joint_limits.get(joint, {})
+            self.node.get_logger().debug(f"{joint}: value={value}, min={limits['min']}, value < min: {value < limits['min']}")
             if 'min' in limits and value < limits['min']:
                 corrected_values[joint] = limits['min']
                 self.node.get_logger().warn(f'Desired value for {joint} below limit. Setting to minimum: {limits["min"]}')
@@ -431,7 +446,7 @@ class SmartTemplateGUIPlugin(Plugin):
         goal_msg.x = corrected_values.get('horizontal_joint', 0.0)
         goal_msg.y = corrected_values.get('insertion_joint', 0.0)
         goal_msg.z = corrected_values.get('vertical_joint', 0.0)
-        goal_msg.eps = 0.01  # Set appropriate epsilon value
+        goal_msg.eps = 0.25  # Set appropriate epsilon value
         self.node.get_logger().info(f'Sending goal: x={goal_msg.x} mm, y={goal_msg.y} mm, z={goal_msg.z} mm')
         # Send goal asynchronously
         self.send_goal_future = self.action_client.send_goal_async(goal_msg)
@@ -453,9 +468,9 @@ class SmartTemplateGUIPlugin(Plugin):
             result = future.result().result
             status = future.result().status
             if status == GoalStatus.STATUS_SUCCEEDED:
-                self.node.get_logger().info('Goal succeeded')
+                self.node.get_logger().info(f"Goal succeeded: position=({result.x:.2f}, {result.y:.2f}, {result.z:.2f}), error={result.error:.4f}, time={result.time:.2f}s")
             else:
-                self.node.get_logger().info('Goal failed with status: {}'.format(status))
+                self.node.get_logger().warn(f"Goal failed with status {status}, error code: {result.error_code}")
             self.robot_idle = True  # Set robot status to IDLE
         except Exception as e:
             self.node.get_logger().error(f'Error in get_result_callback: {e}')

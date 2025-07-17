@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <array>
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -14,7 +15,6 @@
 #include "smart_template_interfaces/srv/get_point.hpp"
 #include "smart_template_interfaces/action/move_and_observe.hpp"
 
-
 // Forward declaration for gclib
 typedef void* GCon;
 
@@ -24,13 +24,51 @@ namespace smart_template_cpp
 class SmartTemplateNode : public rclcpp::Node
 {
 public:
+  using JointState = sensor_msgs::msg::JointState;
   using MoveAndObserve = smart_template_interfaces::action::MoveAndObserve;
   using GoalHandleMoveAndObserve = rclcpp_action::ServerGoalHandle<MoveAndObserve>;
+  using Command = smart_template_interfaces::srv::Command;
+  using Move = smart_template_interfaces::srv::Move;
+  using GetPoint = smart_template_interfaces::srv::GetPoint;
 
   SmartTemplateNode();
   virtual ~SmartTemplateNode();
 
 private:
+  // Struct to hold joint metadata (mimicking Python version)
+  struct JointInfo {
+    std::vector<std::string> names;
+    std::vector<std::string> channels;
+    std::vector<double> limits_lower;
+    std::vector<double> limits_upper;
+    std::vector<double> mm_to_count;
+    std::vector<double> count_to_mm;
+
+    void add(const std::string& name, const std::string& channel,
+             double lower, double upper, double mm_to_count_val) {
+      names.push_back(name);
+      channels.push_back(channel);
+      limits_lower.push_back(lower);
+      limits_upper.push_back(upper);
+      mm_to_count.push_back(mm_to_count_val);
+      count_to_mm.push_back(mm_to_count_val != 0.0 ? 1.0 / mm_to_count_val : 0.0);
+    }
+
+    int index(const std::string& joint_name) const {
+      auto it = std::find(names.begin(), names.end(), joint_name);
+      return (it != names.end()) ? std::distance(names.begin(), it) : -1;
+    }
+  };
+  // JointInfo internal object
+  JointInfo joint_info_;
+
+  // FK/IK functions
+  std::array<double, 3> fk_model(const std::vector<double>& joints_mm) const;
+  std::vector<double> ik_model(const std::array<double, 3>& position_mm) const;
+
+  // Helper to parse URDF into JointInfo
+  bool parse_joint_info_from_urdf(const std::string& urdf_str);
+
   // Publishers
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr publisher_stage_pose_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr publisher_joint_states_;
@@ -43,11 +81,14 @@ private:
 
   // Action server
   rclcpp_action::Server<MoveAndObserve>::SharedPtr action_server_;
+  std::shared_ptr<GoalHandleMoveAndObserve> current_goal_handle_;
+  std::mutex goal_mutex_;
+  rclcpp::TimerBase::SharedPtr goal_timer_;
+  rclcpp::CallbackGroup::SharedPtr action_callback_group_;
 
   // Galil communication
   GCon galil_;
-  bool abort_;
-  std::vector<std::string> joint_names_;
+  std::atomic<bool> abort_{false};
   
   // Constants for unit conversion
   const double MM_2_COUNT_X = 715.0;  // Horizontal
@@ -91,13 +132,14 @@ private:
     const std::shared_ptr<GoalHandleMoveAndObserve> goal_handle);
 
   // Internal helper functions
-  std::vector<double> get_position();
-  std::vector<double> tell_error();
+  void initialize_galil();
+  std::vector<double> get_joints();
+  std::vector<double> get_joints_err();
+  std::array<double, 3> get_position();
+  double error_3d(const std::array<double, 3>& a,const std::array<double, 3>& b) const;
   void abort_motion();
-  void send_movement(const std::vector<double> & goal);
-  double check_limits(double x, const std::string & channel);
-  bool send_movement_in_counts(double x, const std::string & channel);
-  double distance_positions(const std::vector<double> & goal, const std::vector<double> & position);
+  std::vector<double> check_limits(const std::vector<double>& joint_values) const;
+  void position_control(const std::array<double, 3> & goal);
 };
 
 } // namespace smart_template_cpp

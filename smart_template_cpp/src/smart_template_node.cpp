@@ -16,6 +16,33 @@
 #include <algorithm>
 #include <unordered_map>
 
+#include "geometry_msgs/msg/point.hpp"
+#include "std_msgs/msg/string.hpp"
+
+/*#########################################################################
+#
+# Smart Template C++
+#
+# Description:
+# This node implements a node for the SmartTemplate 3DOF needle guide robot
+# Implements the robot service and action servers
+#
+# Publishes:   
+# '/stage/state/guide_pose'     (geometry_msgs.msg.PointStamped)  - [mm] robot frame
+# '/joint_states'               (sensor_msgs.msg.JointState)      - [m] robot frame
+#
+# Subscribe:
+# '/desired_position'           (geometry_msgs.msg.Point)  - [mm] robot frame
+# '/desired_command'            (std_msgs.msg.String)
+#
+# Action/Service clients:
+# '/stage/move_and_observe'     (smart_template_interfaces.action.MoveAndObserve) - robot frame
+# '/stage/move'                 (smart_template_interfaces.srv.Move) - robot frame
+# '/stage/command'              (smart_template_interfaces.srv.Command) - robot frame
+# '/stage/get_position'         (smart_template_interfaces.srv.GetPoint) - robot frame
+# 
+#########################################################################*/
+
 extern "C" {
   GReturn GOpen(GCStringIn connection_string, GCon* g_connection);
   GReturn GClose(GCon g_connection);
@@ -39,6 +66,16 @@ SmartTemplateNode::SmartTemplateNode()
     rclcpp::shutdown();
     return;
   }
+
+    // Initialize subscribers
+    desired_position_sub_ = this->create_subscription<geometry_msgs::msg::Point>(
+      "/desired_position", 10,
+      std::bind(&SmartTemplateNode::desired_position_callback, this, std::placeholders::_1));
+    
+    desired_command_sub_ = this->create_subscription<std_msgs::msg::String>(
+      "/desired_command", 10,
+      std::bind(&SmartTemplateNode::desired_command_callback, this, std::placeholders::_1));
+    
 
   // Initialize publishers
   publisher_stage_pose_ = this->create_publisher<geometry_msgs::msg::PointStamped>(
@@ -349,7 +386,43 @@ void SmartTemplateNode::position_control(const std::array<double, 3> & goal)
   }
 }
 
-//#### Listening callbacks ###################################################
+//#### Subscriber callbacks ###################################################
+
+// Receives a request message for desired command
+void SmartTemplateNode::desired_command_callback(const std_msgs::msg::String::SharedPtr msg)
+{
+  std::string command = msg->data;
+  RCLCPP_DEBUG(this->get_logger(), "Received command request");
+  RCLCPP_INFO(this->get_logger(), "Command: %s", command.c_str());
+  if (command == "HOME") {
+    std::array<double, 3> goal = {0.0, 0.0, 0.0};
+    position_control(goal);
+  }
+  else if (command == "RETRACT") {
+    std::array<double, 3> position = get_position();
+    std::array<double, 3> goal = {position[0], 0.0, position[2]};
+    position_control(goal);
+  }
+  else if (command == "ABORT") {
+    abort_ = true;
+    abort_motion();
+  }
+  else if (command == "RESUME") {
+    abort_ = false;
+  }
+}
+
+// Receives a request message for desired position
+void SmartTemplateNode::desired_position_callback(const geometry_msgs::msg::Point::SharedPtr msg)
+{
+  std::array<double, 3> goal = {msg->x, msg->y, msg->z};
+  RCLCPP_INFO(this->get_logger(), "Received position request: x=%.2f, y=%.2f, z=%.2f",
+              goal[0], goal[1], goal[2]);
+  position_control(goal);
+}
+
+
+//#### Publishing callbacks ###################################################
 
 // Publish robot joints and end-effector pose
 void SmartTemplateNode::timer_stage_pose_callback() {
@@ -414,20 +487,24 @@ void SmartTemplateNode::command_callback(
     std::array<double, 3> goal = {0.0, 0.0, 0.0};
     position_control(goal);
     response->response = "Command HOME sent";
-  } else if (request->command == "RETRACT") {
+  } 
+  else if (request->command == "RETRACT") {
     auto position = get_position();
     std::array<double, 3> goal = {position[0], 0.0, position[2]};
     position_control(goal);
     response->response = "Command RETRACT sent";
-  } else if (request->command == "ABORT") {
+  } 
+  else if (request->command == "ABORT") {
     abort_ = true;
     abort_motion();
     response->response = "Command ABORT sent";
-  } else if (request->command == "RESUME") {
+  } 
+  else if (request->command == "RESUME") {
       abort_ = false;
       response->response = "Command RESUME sent";
       RCLCPP_INFO(this->get_logger(), "System resumed. Motion re-enabled.");
-    } else {
+  } 
+  else {
     response->response = "Unknown command: " + request->command;
   }
 }

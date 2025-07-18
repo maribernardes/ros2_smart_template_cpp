@@ -8,12 +8,15 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "geometry_msgs/msg/point_stamped.hpp"
+#include "geometry_msgs/msg/point.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "smart_template_interfaces/srv/command.hpp"
 #include "smart_template_interfaces/srv/move.hpp"
 #include "smart_template_interfaces/srv/get_point.hpp"
 #include "smart_template_interfaces/action/move_and_observe.hpp"
+
 
 // Forward declaration for gclib
 typedef void* GCon;
@@ -69,6 +72,10 @@ private:
   // Helper to parse URDF into JointInfo
   bool parse_joint_info_from_urdf(const std::string& urdf_str);
 
+  // Subscribers
+  rclcpp::Subscription<geometry_msgs::msg::Point>::SharedPtr desired_position_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr desired_command_sub_;
+
   // Publishers
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr publisher_stage_pose_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr publisher_joint_states_;
@@ -101,7 +108,12 @@ private:
   const double ERROR_GAIN = 500.0;
   const double TIMEOUT = 30.0;
 
-  // Callback functions
+
+  // Subscriber callbacks
+  void desired_position_callback(const geometry_msgs::msg::Point::SharedPtr msg);
+  void desired_command_callback(const std_msgs::msg::String::SharedPtr msg);
+
+  // Publisher callbacks
   void timer_stage_pose_callback();
   
   // Service callbacks

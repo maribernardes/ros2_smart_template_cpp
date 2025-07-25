@@ -1,10 +1,16 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:macro name="smart_template_ros2_control">
+  <xacro:macro name="smart_template_ros2_control" params="sim_level">
     <ros2_control name="smart_template" type="system">
+    
       <hardware>
-        <plugin>galil_driver/GalilSystemHardwareInterface</plugin>
+        <xacro:if value="${int(sim_level) == 1}">
+          <plugin>mock_components/GenericSystem</plugin>
+        </xacro:if>
+        <xacro:if value="${int(sim_level) == 2}">
+          <plugin>galil_driver/GalilSystemHardwareInterface</plugin>
+        </xacro:if>
       </hardware>
       
       <joint name="insertion_joint">

@@ -14,24 +14,31 @@ find_package(rclcpp_components REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 
 # Find smart_template packages
 find_package(smart_template_description REQUIRED) # URDF
 find_package(smart_template_interfaces REQUIRED)  # Messages
-find_package(galil_driver REQUIRED)               # Controller
+#find_package(galil_driver REQUIRED)               # Controller
 
-include_directories(
-  include
-)
 
 # Create Smart Template node
 add_executable(smart_template_node 
   src/smart_template_node.cpp
 )
 
-#rosidl_get_typesupport_target(cpp_typesupport_target_node ${PROJECT_NAME} "rosidl_typesupport_cpp")
-#target_link_libraries(smart_template_node "${cpp_typesupport_target_node}")
+target_include_directories(smart_template_node
+  PUBLIC
+    ${EIGEN3_INCLUDE_DIRS}
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(smart_template_node
+  gclib
+  tinyxml2
+)
 
 ament_target_dependencies(smart_template_node
   rclcpp
@@ -41,11 +48,7 @@ ament_target_dependencies(smart_template_node
   std_msgs
   smart_template_interfaces
   smart_template_description
-)
-
-target_link_libraries(smart_template_node
-  gclib
-  tinyxml2
+  Eigen3
 )
 
 # Install Python GUI module

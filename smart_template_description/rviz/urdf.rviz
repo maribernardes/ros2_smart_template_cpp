@@ -18,6 +18,21 @@ Visualization Manager:
     - Class: rviz_default_plugins/TF
       Name: TF
       Value: true
+      Show Axes: true
+      Show Arrows: false
+      Frame Timeout: 0.2
+      Frames:
+        All Enabled: false
+        base_link:
+          Value: false
+        horizontal_link:
+          Value: false
+        needle_link:
+          Value: true
+        vertical_link:
+          Value: false
+        world:
+          Value: true
   Global Options:
     Fixed Frame: world
   Tools:
@@ -28,6 +43,10 @@ Visualization Manager:
       Class: rviz_default_plugins/Orbit
       Distance: 1.7
       Name: Current View
+      Focal Point:
+        X: -0.05710997059941292
+        Y: -0.062309931963682175
+        Z: -0.03133063018321991
       Pitch: -1.33
       Value: Orbit (rviz)
       Yaw: 1.55

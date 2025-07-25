@@ -1,14 +1,11 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://wiki.ros.org/xacro" name="$(arg name)">
 
-  <!-- ros2_control URDF -->
-  <xacro:include filename="$(find smart_template_description)/urdf/smart_template.ros2_control.xacro"/>
-
-
-  <!-- Argument for needle_type -->
+  <!-- Arguments -->
+  <xacro:arg name="sim_level" default="1"/>
+  <xacro:arg name="robot_mode" default="default"/>
   <xacro:arg name="needle_type" default="default"/>
   <xacro:arg name="zframe_config" default="default"/>
-  <xacro:arg name="robot_mode" default="default"/>
 
   <!-- smart_template URDF -->
   <xacro:include filename="$(find smart_template_description)/urdf/smart_template.xacro"/>
@@ -21,7 +18,8 @@
   </xacro:zframe>
 
   <!-- ros2_control URDF -->
-  <xacro:smart_template_ros2_control>
+  <xacro:include filename="$(find smart_template_description)/urdf/smart_template.ros2_control.xacro"/>
+  <xacro:smart_template_ros2_control  sim_level="$(arg sim_level)">
   </xacro:smart_template_ros2_control>
 
   <!-- create link fixed to the "world" -->

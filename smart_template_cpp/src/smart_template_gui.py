@@ -446,7 +446,7 @@ class SmartTemplateGUIPlugin(Plugin):
         goal_msg.x = corrected_values.get('horizontal_joint', 0.0)
         goal_msg.y = corrected_values.get('insertion_joint', 0.0)
         goal_msg.z = corrected_values.get('vertical_joint', 0.0)
-        goal_msg.eps = 0.25  # Set appropriate epsilon value
+        goal_msg.eps = 0.3  # Set appropriate epsilon value
         self.node.get_logger().info(f'Sending goal: x={goal_msg.x} mm, y={goal_msg.y} mm, z={goal_msg.z} mm')
         # Send goal asynchronously
         self.send_goal_future = self.action_client.send_goal_async(goal_msg)
@@ -468,7 +468,7 @@ class SmartTemplateGUIPlugin(Plugin):
             result = future.result().result
             status = future.result().status
             if status == GoalStatus.STATUS_SUCCEEDED:
-                self.node.get_logger().info(f"Goal succeeded: position=({result.x:.2f}, {result.y:.2f}, {result.z:.2f}), error={result.error:.4f}, time={result.time:.2f}s")
+                self.node.get_logger().info(f"Goal succeeded: joint_err=({result.x:.2f}, {result.y:.2f}, {result.z:.2f}), 3d_error={result.error:.4f}, time={result.time:.2f}s")
             else:
                 self.node.get_logger().warn(f"Goal failed with status {status}, error code: {result.error_code}")
             self.robot_idle = True  # Set robot status to IDLE

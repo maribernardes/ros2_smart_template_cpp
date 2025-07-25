@@ -2,6 +2,11 @@
 
 This package provides a complete C++ implementation of the smart_template robot that integrates with the ROS 2 Control framework. It leverages the existing `galil_driver` hardware interface while containing all robot-specific details, descriptions, and interfaces within a single package.
 
+## ROS2 Control packages to be installed:
+sudo apt-get install ros-humble-forward-command-controller ros-humble-joint-state-broadcaster \
+                 ros-humble-joint-trajectory-controller ros-humble-position-controllers \
+                 ros-humble-velocity-controllers
+
 ## Package Structure
 
 - `src/smart_template_node.cpp`: C++ implementation of the SmartTemplate node (equivalent to the Python version)

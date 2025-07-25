@@ -25,7 +25,7 @@
   <depend>pluginlib</depend>
   <depend>tinyxml2</depend>
 
-  <depend>galil_driver</depend>
+  <!--<depend>galil_driver</depend> -->
   <depend>realtime_tools</depend>
   <depend>action_msgs</depend>
   <depend>builtin_interfaces</depend>

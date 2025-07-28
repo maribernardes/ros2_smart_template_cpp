@@ -12,9 +12,14 @@
       <xacro:property name="zframe_position" value="0.0 0.0980 -0.1283"/> <!-- Position (x, y, z) --> 
     </xacro:if>
 
-    <xacro:if value="${zframe_config == 'new'}">  <!-- zframe from registration experiment in AMIGO (2025-04-24)-->
+    <xacro:if value="${zframe_config == 'test'}">  <!-- zframe from registration experiment in AMIGO (2025-04-24)-->
       <xacro:property name="zframe_orientation" value="-0.9990810696561544 -0.022101423357745315 0.03672187349962075 -0.020810007551375062 0.9991641103988661 0.035185134034339226 -0.037468819763572525 0.03438861763171322 -0.9987059378014156"/> <!-- Rotation matrix (row by row) --> 
       <xacro:property name="zframe_position" value="0.001171932293919652 0.10549880638836385 -0.11120061509823658"/> <!-- Position (x, y, z) -->
+    </xacro:if>
+
+    <xacro:if value="${zframe_config == 'new'}">  <!-- zframe from registration experiment in AMIGO (2025-07-23)-->
+      <xacro:property name="zframe_orientation" value="-0.9996147025670941 0.014578846766073413 0.023618849514765904 0.01389168105492629 0.9994828181328841 -0.029001386987696023 -0.024029440919981136 -0.028662061839630798 -0.9993002853456078"/> <!-- Rotation matrix (row by row) --> 
+      <xacro:property name="zframe_position" value="0.004914398868714972 0.10075025081155526 -0.11873539242196507"/> <!-- Position (x, y, z) -->
     </xacro:if>
 
     <xacro:if value="${zframe_config == 'old'}"> <!-- zframe from SmartNeedle Animal Experiment in 221 Longwood (2023-12-20) -->

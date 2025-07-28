@@ -1,5 +1,5 @@
 <library path="src">
-  <class name="SmartTemplate Python GUI" type="src.smart_template_gui.SmartTemplateGUIPlugin" base_class_type="rqt_gui_py::Plugin">
+  <class name="SmartTemplate GUI" type="src.smart_template_gui.SmartTemplateGUIPlugin" base_class_type="rqt_gui_py::Plugin">
     <description>
       SmartTemplate GUI Plugin for rqt
     </description>

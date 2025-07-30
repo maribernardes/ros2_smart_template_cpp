@@ -19,8 +19,6 @@ find_package(rosidl_default_generators REQUIRED)
 set(srv_files
 "srv/Command.srv"
 "srv/Move.srv"
-"srv/GetPoint.srv"
-"srv/GetPose.srv"
 )
 
 set(action_files

@@ -20,7 +20,6 @@
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "smart_template_interfaces/srv/command.hpp"
 #include "smart_template_interfaces/srv/move.hpp"
-#include "smart_template_interfaces/srv/get_point.hpp"
 #include "smart_template_interfaces/action/move_and_observe.hpp"
 
 

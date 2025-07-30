@@ -25,19 +25,18 @@
 # This node implements a node for the SmartTemplate 3DOF needle guide robot
 # Implements the robot service and action servers
 #
-# Publishes:   
-# '/stage/state/guide_pose'     (geometry_msgs.msg.PointStamped)  - [mm] robot frame
-# '/joint_states'               (sensor_msgs.msg.JointState)      - [m] robot frame
+# Publishes:
+# '/position_controller/commands' (std_msgs::msg::Float64MultiArray) - [m] 
 #
-# Subscribe:
-# '/desired_position'           (geometry_msgs.msg.Point)  - [mm] robot frame
-# '/desired_command'            (std_msgs.msg.String)
+# Subscribes:
+# '/joint_states'               (sensor_msgs.msg.JointState)  - [m] 
+# '/desired_position'           (geometry_msgs.msg.Point)     - [mm] robot frame
+# '/desired_command'            (std_msgs.msg.String)         - HOME, RETRACT, ABORT, RESUME
 #
 # Action/Service clients:
-# '/stage/move_and_observe'     (smart_template_interfaces.action.MoveAndObserve) - robot frame
-# '/stage/move'                 (smart_template_interfaces.srv.Move) - robot frame
-# '/stage/command'              (smart_template_interfaces.srv.Command) - robot frame
-# '/stage/get_position'         (smart_template_interfaces.srv.GetPoint) - robot frame
+# '/stage/move_and_observe'     (smart_template_interfaces.action.MoveAndObserve) - [mm] robot frame
+# '/stage/move'                 (smart_template_interfaces.srv.Move) - [mm] robot frame
+# '/stage/command'              (smart_template_interfaces.srv.Command) - HOME, RETRACT, ABORT, RESUME
 # 
 #########################################################################*/
 
@@ -76,10 +75,6 @@ SmartTemplateNode::SmartTemplateNode()
     
   // Initialize publishers
   joint_command_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/position_controller/commands", 10);
-  stage_pose_pub_ = this->create_publisher<geometry_msgs::msg::PointStamped>("/stage/state/guide_pose", 10);
-  timer_ = this->create_wall_timer(
-    std::chrono::milliseconds(200),
-    std::bind(&SmartTemplateNode::timer_stage_pose_callback, this));
   
   // Initialize service servers
   command_server_ = this->create_service<smart_template_interfaces::srv::Command>(
@@ -94,13 +89,6 @@ SmartTemplateNode::SmartTemplateNode()
     [this](const std::shared_ptr<smart_template_interfaces::srv::Move::Request> request,
             std::shared_ptr<smart_template_interfaces::srv::Move::Response> response) {
       this->move_callback(request, response);
-    });
-  
-  current_position_server_ = this->create_service<smart_template_interfaces::srv::GetPoint>(
-    "/stage/get_position",
-    [this](const std::shared_ptr<smart_template_interfaces::srv::GetPoint::Request> request,
-            std::shared_ptr<smart_template_interfaces::srv::GetPoint::Response> response) {
-      this->current_position_callback(request, response);
     });
 
   // Initialize action server
@@ -346,51 +334,7 @@ void SmartTemplateNode::send_joint_command(const Eigen::VectorXd& q_cmd) {
   RCLCPP_DEBUG(this->get_logger(), "Published joint position command [mm]: (%f, %f, %f)", q_cmd[0],q_cmd[1],q_cmd[2]);
 }
 
-// Publish robot end-effector pose
-void SmartTemplateNode::timer_stage_pose_callback() {
-  // Get current joint values [mm]
-  Eigen::VectorXd joints_mm = get_joints();
-  if (joints_mm.size() == 0) {
-    RCLCPP_WARN(this->get_logger(), "Failed to read joint positions.");
-    return;
-  }
-  // Forward kinematics to get stage position
-  Eigen::Vector3d pos = compute_fk(joints_mm);
-
-  // Publish stage pose
-  geometry_msgs::msg::PointStamped msg;
-  msg.header.stamp = this->now();
-  msg.header.frame_id = "stage";
-  msg.point.x = pos.x();
-  msg.point.y = pos.y();
-  msg.point.z = pos.z();
-
-  stage_pose_pub_->publish(msg);
-  RCLCPP_DEBUG(this->get_logger(),
-               "stage_pose [mm]: x=%.2f, y=%.2f, z=%.2f in %s frame",
-               msg.point.x, msg.point.y, msg.point.z,
-               msg.header.frame_id.c_str());
-}
-
 //#### Service functions ###################################################
-
-// Current position service request
-void SmartTemplateNode::current_position_callback(
-  const std::shared_ptr<smart_template_interfaces::srv::GetPoint::Request> /*request*/,
-  std::shared_ptr<smart_template_interfaces::srv::GetPoint::Response> response)
-{
-  RCLCPP_DEBUG(this->get_logger(), "Received current position request");
-  try {
-    auto current_position = get_position();
-    response->valid = true;
-    response->x = current_position[0];
-    response->y = current_position[1];
-    response->z = current_position[2];
-  } catch (const std::exception & e) {
-    RCLCPP_ERROR(this->get_logger(), "Error getting current position: %s", e.what());
-    response->valid = false;
-  }
-}
 
 // Command service request
 void SmartTemplateNode::command_callback(

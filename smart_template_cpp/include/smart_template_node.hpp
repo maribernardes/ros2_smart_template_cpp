@@ -35,7 +35,6 @@ public:
   using GoalHandleMoveAndObserve = rclcpp_action::ServerGoalHandle<MoveAndObserve>;
   using Command = smart_template_interfaces::srv::Command;
   using Move = smart_template_interfaces::srv::Move;
-  using GetPoint = smart_template_interfaces::srv::GetPoint;
 
   SmartTemplateNode();
   virtual ~SmartTemplateNode();
@@ -98,16 +97,12 @@ private:
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr desired_command_sub_;
 
   // Publishers
-  //std::vector<rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr> joint_command_pubs_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr joint_command_pub_;
-  rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr stage_pose_pub_;
-  rclcpp::TimerBase::SharedPtr timer_;
 
   // Service servers
   rclcpp::Service<smart_template_interfaces::srv::Command>::SharedPtr command_server_;
   rclcpp::Service<smart_template_interfaces::srv::Move>::SharedPtr move_server_;
-  rclcpp::Service<smart_template_interfaces::srv::GetPoint>::SharedPtr current_position_server_;
-
+  
   // Action server
   rclcpp_action::Server<MoveAndObserve>::SharedPtr action_server_;
   std::shared_ptr<GoalHandleMoveAndObserve> current_goal_handle_;
@@ -126,7 +121,6 @@ private:
 
   // Publisher functions/callbacks
   void send_joint_command(const Eigen::VectorXd& q_cmd);
-  void timer_stage_pose_callback();
   
   // Service callbacks
   void command_callback(
@@ -137,9 +131,6 @@ private:
     const std::shared_ptr<smart_template_interfaces::srv::Move::Request> request,
     std::shared_ptr<smart_template_interfaces::srv::Move::Response> response);
 
-  void current_position_callback(
-    const std::shared_ptr<smart_template_interfaces::srv::GetPoint::Request> request,
-    std::shared_ptr<smart_template_interfaces::srv::GetPoint::Response> response);
 
   // Action callbacks
   rclcpp_action::GoalResponse handle_goal(

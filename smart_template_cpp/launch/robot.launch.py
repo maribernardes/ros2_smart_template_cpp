@@ -14,15 +14,13 @@ from launch.actions import LogInfo, TimerAction, ExecuteProcess
 # Launch smart_template robot (hardware or virtual version) with ros2_control 
 
 def generate_launch_description():
-
     ld = LaunchDescription()
-
     # Launch arguments
     arg_robot_mode = DeclareLaunchArgument(
         'robot_mode',
         default_value = 'default',
         description = 'default / calibration' 
-    )  
+    )
     arg_needle_type = DeclareLaunchArgument(
         'needle_type',
         default_value = 'default',
@@ -71,20 +69,13 @@ def generate_launch_description():
         default_value="10",
         description="Timeout used when spawing controllers"
     )
-    #arg_initial_controller = DeclareLaunchArgument(
-    #    "initial_controller",
-    #    default_value="position_controller",
-    #    description="Initially loaded robot controller"
-    #)
 
     # Launch Configurations
     description_package = LaunchConfiguration('description_package')
     description_file = LaunchConfiguration('description_file')
-    robot_description_rate = LaunchConfiguration('rate', default=50.0)  # Hz, default is 10 so we're increasing that a bit. 
     rviz_file = PathJoinSubstitution([FindPackageShare(description_package), 'rviz', 'urdf.rviz'])
     controller_yaml_file = PathJoinSubstitution([FindPackageShare("smart_template_cpp"), "config", "smart_template_controllers.yaml"])
     controller_spawner_timeout = LaunchConfiguration("controller_spawner_timeout")
-    #initial_controller = LaunchConfiguration("initial_controller")
 
     # Get Robot description URDF via xacro
     robot_description_content = Command([
@@ -103,30 +94,10 @@ def generate_launch_description():
         "zframe_config:=", LaunchConfiguration('zframe_config')
     ])
     robot_description = {
-        "robot_description": robot_description_content, 
-        'publish_frequency': robot_description_rate
+        "robot_description": robot_description_content
     }
-
+    
     # Nodes
-    def controller_spawner(controller_name: str, active: bool = True, controller_type: str = None, 
-                           condition: Optional[LaunchConfiguration] = None, extra_args: List[str] = None):
-        inactive_flags = ["--inactive"] if not active else []
-        type_flags = ["--controller-type", controller_type] if controller_type else []
-        args = [
-            controller_name,
-            "--controller-manager", "/controller_manager",
-            "--controller-manager-timeout", controller_spawner_timeout,
-        ] + inactive_flags + type_flags
-        if extra_args:
-            args += extra_args
-        return Node(
-            package="controller_manager",
-            executable="spawner",
-            arguments=args,
-            condition=IfCondition(condition) if condition else None,
-            output="screen"
-        )
-
     control_node = Node(
         package="controller_manager",
         executable="ros2_control_node",
@@ -147,7 +118,10 @@ def generate_launch_description():
         executable='robot_state_publisher',
         name='robot_state_publisher',
         output='screen',
-        parameters=[robot_description]
+        parameters=[
+            robot_description,
+            {"publish_frequency": 30.0}
+        ],
     )
 
     rviz_node = Node(
@@ -166,22 +140,6 @@ def generate_launch_description():
         output='screen',
     )
 
-    # Activate controller
-    #activate_controller = TimerAction(
-    #    period = 3.0,  # Wait to ensure all spawners are ready
-    #    actions = [
-    #        ExecuteProcess(
-    #            cmd=[
-    #                "ros2", "control", "switch_controllers",
-    #                "--activate", initial_controller,
-    #                "--strict"
-    #            ],
-    #            shell=True,
-    #            output="screen"
-    #        )
-    #    ]
-    #)
-
     # Include launch arguments
     ld.add_action(arg_sim_level)
     ld.add_action(arg_robot_mode)
@@ -193,7 +151,6 @@ def generate_launch_description():
     ld.add_action(arg_description_file)
     ld.add_action(arg_name)
     ld.add_action(arg_controller_spawner_timeout)
-    #ld.add_action(arg_initial_controller)
     
     # Nodes
     ld.add_action(robot_state_publisher_node) # Publishes robot_description
@@ -205,37 +162,41 @@ def generate_launch_description():
                             smart_template_node,
                             ExecuteProcess(
                                 condition=IfCondition(LaunchConfiguration('gui')),
-                                cmd=['rqt', '--standalone', 'smart_template_gui'],
+                                cmd=['rqt', '--standalone', 'smart_template_gui', '--force-discover'],
                                 output='screen'
                             )]
             )
         )
     )
 
+    # Spawn controllers    
+    def controller_spawner(controller_name: str, active: bool = True, controller_type: str = None, 
+                           condition: Optional[LaunchConfiguration] = None, extra_args: List[str] = None):
+        inactive_flags = ["--inactive"] if not active else []
+        type_flags = ["--controller-type", controller_type] if controller_type else []
+        args = [
+            controller_name,
+            "--controller-manager", "/controller_manager",
+            "--controller-manager-timeout", controller_spawner_timeout,
+        ] + inactive_flags + type_flags
+        if extra_args:
+            args += extra_args
+        return Node(
+            package="controller_manager",
+            executable="spawner",
+            arguments=args,
+            condition=IfCondition(condition) if condition else None,
+            output="screen"
+        )
     ld.add_action(controller_spawner("joint_state_broadcaster", active=True))
     ld.add_action(controller_spawner("position_controller", active=True))
-    #for name in ["position_controller", "velocity_controller"]:
-    #    ld.add_action(controller_spawner(name, active=False))
-    #ld.add_action( # Activate initial_controller AFTER control node
-    #    RegisterEventHandler(
-    #        OnProcessStart(
-    #            target_action = control_node,  # Wait until control_node is started
-    #            on_start = [ExecuteProcess(
-    #                            cmd=["ros2", "control", "switch_controllers",
-    #                                "--activate", initial_controller,
-    #                                "--strict"
-    #                            ],
-    #                            shell=True,
-    #                            output="screen"
-    #                        )]
-    #        )
-    #    )
-    #)
+
+    # Rviz and world_pose listenter (temporary)
     ld.add_action(rviz_node)
     ld.add_action(world_pose_node)
     
     # Logging 
-    #ld.add_action(LogInfo(msg=['[robot_launch] initial_controller = ', initial_controller]))
+    ld.add_action(LogInfo(msg=['[robot_launch] Active controller = position_controller']))
 
     return ld
 

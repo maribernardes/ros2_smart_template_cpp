@@ -20,7 +20,7 @@ Visualization Manager:
       Value: true
       Show Axes: true
       Show Arrows: false
-      Frame Timeout: 0.2
+      Frame Timeout: 10.0
       Frames:
         All Enabled: false
         base_link:

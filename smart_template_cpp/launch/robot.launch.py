@@ -124,6 +124,19 @@ def generate_launch_description():
         ],
     )
 
+    tf_world = Node(
+    package='tf2_ros',
+    executable='static_transform_publisher',
+    name='tf_world',
+    output='screen',
+    arguments=[
+            '--x','0','--y','0','--z','0',
+            '--qx','0','--qy','0','--qz','0','--qw','1',
+            '--frame-id','world',
+            '--child-frame-id','base_link',
+            ],
+    )
+
     rviz_node = Node(
         package='rviz2',
         executable='rviz2',
@@ -191,9 +204,10 @@ def generate_launch_description():
     ld.add_action(controller_spawner("joint_state_broadcaster", active=True))
     ld.add_action(controller_spawner("position_controller", active=True))
 
-    # Rviz and world_pose listenter (temporary)
-    ld.add_action(rviz_node)
-    ld.add_action(world_pose_node)
+    
+    ld.add_action(rviz_node)        # Rviz
+    ld.add_action(tf_world)         # tf world static broadcaster
+    ld.add_action(world_pose_node)  # world_pose listenter (temporary)
     
     # Logging 
     ld.add_action(LogInfo(msg=['[robot_launch] Active controller = position_controller']))

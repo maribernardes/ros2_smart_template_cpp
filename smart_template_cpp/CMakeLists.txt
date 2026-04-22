@@ -20,6 +20,7 @@ find_package(Eigen3 REQUIRED)
 # Find smart_template packages
 find_package(smart_template_description REQUIRED) # URDF
 find_package(smart_template_interfaces REQUIRED)  # Messages
+find_package(smart_template_moveit_config REQUIRED)  # Messages
 #find_package(galil_driver REQUIRED)               # Controller
 
 
@@ -48,6 +49,7 @@ ament_target_dependencies(smart_template_node
   std_msgs
   smart_template_interfaces
   smart_template_description
+  smart_template_moveit_config
   Eigen3
 )
 

@@ -1,0 +1,11 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: smart_template_description
+    relative_path: urdf/smart_template.urdf.xacro
+    xacro_args: name:=smart_template robot_mode:=default needle_type:=default
+  srdf:
+    relative_path: config/smart_template.srdf
+  package_settings:
+    author_name: Mariana Bernardes (BWH)
+    author_email: mcostabernardesmatias@bwh.harvard.edu
+    generated_timestamp: 1776805022

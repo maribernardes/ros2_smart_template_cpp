@@ -3,7 +3,6 @@
 import rclpy
 from rclpy.node import Node
 from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
-from geometry_msgs.msg import Pose
 from geometry_msgs.msg import TransformStamped
 
 class WorldPoseListener(Node):

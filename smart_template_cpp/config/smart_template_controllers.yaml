@@ -5,6 +5,9 @@ controller_manager:
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
+    joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
     velocity_controller:
       type: velocity_controllers/JointGroupVelocityController
 
@@ -24,6 +27,18 @@ smart_template_controller:
     end_effector_link: needle_link
     interface_name: velocity
 
+joint_trajectory_controller:
+  ros__parameters:
+    joints:
+      - horizontal_joint  #Channel A
+      - insertion_joint   #Channel B
+      - vertical_joint    #Channel C
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+
 velocity_controller:
   ros__parameters:
     joints:
@@ -39,3 +54,4 @@ position_controller:
       - insertion_joint   #Channel B
       - vertical_joint    #Channel C
     interface_name: position
+

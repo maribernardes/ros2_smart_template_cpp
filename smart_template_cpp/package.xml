@@ -12,6 +12,7 @@
 
   <depend>smart_template_interfaces</depend>
   <depend>smart_template_description</depend>
+  <depend>smart_template_moveit_config</depend>
 
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>

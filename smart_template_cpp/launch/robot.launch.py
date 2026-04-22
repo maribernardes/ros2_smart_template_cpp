@@ -5,7 +5,7 @@ from launch import LaunchDescription
 from launch.substitutions.launch_configuration import LaunchConfiguration
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
 from launch.conditions import IfCondition, UnlessCondition
-from launch.event_handlers import OnProcessStart
+from launch.event_handlers import OnProcessStart, OnProcessExit
 from launch_ros.substitutions import FindPackageShare
 from launch_ros.actions import Node
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, RegisterEventHandler
@@ -31,16 +31,17 @@ def generate_launch_description():
         default_value = 'default',
         description = 'default / test / new / old'
     )  
-    arg_sim_level = DeclareLaunchArgument(
-        'sim_level',
-        default_value = '1',
-        description='1 = simulation (fake), 2 = real hardware'
-    )  
-    arg_rviz = DeclareLaunchArgument(
-        'rviz', 
-        default_value = 'false', 
-        choices = ['true', 'false'],
-        description = 'Start RViz automatically'
+    arg_use_mock_hardware = DeclareLaunchArgument(
+        "use_mock_hardware",
+        default_value="true",
+        choices=["true", "false"],
+        description="true = simulation/fake hardware, false = real hardware",
+    )
+    arg_launch_rviz = DeclareLaunchArgument(
+        "launch_rviz",
+        default_value="false",
+        choices=["true", "false"],
+        description="Launch the regular URDF RViz (not MoveIt RViz)",
     )
     arg_gui = DeclareLaunchArgument(
         'gui', 
@@ -85,7 +86,7 @@ def generate_launch_description():
         " ",
         "name:=", LaunchConfiguration('name'),
         " ",
-        "sim_level:=", LaunchConfiguration('sim_level'),
+        "use_mock_hardware:=", LaunchConfiguration('use_mock_hardware'),
         " ",
         "robot_mode:=", LaunchConfiguration('robot_mode'),
         " ",
@@ -141,7 +142,7 @@ def generate_launch_description():
         package='rviz2',
         executable='rviz2',
         arguments=['-d', rviz_file],
-        condition=IfCondition(LaunchConfiguration('rviz')),
+        condition=IfCondition(LaunchConfiguration('launch_rviz')),
         name='rviz2',
         output='screen'
     )
@@ -154,37 +155,48 @@ def generate_launch_description():
     )
 
     # Include launch arguments
-    ld.add_action(arg_sim_level)
+    ld.add_action(arg_use_mock_hardware)
     ld.add_action(arg_robot_mode)
     ld.add_action(arg_needle_type)
     ld.add_action(arg_zframe_config)
-    ld.add_action(arg_rviz)
+    ld.add_action(arg_launch_rviz)
     ld.add_action(arg_gui)
     ld.add_action(arg_description_package)
     ld.add_action(arg_description_file)
     ld.add_action(arg_name)
     ld.add_action(arg_controller_spawner_timeout)
     
-    # Nodes
-    ld.add_action(robot_state_publisher_node) # Publishes robot_description
-    ld.add_action( # Start smart_template, control node and rqt GUI AFTER robot_state_publisher is available
+
+    # Base nodes
+    ld.add_action(robot_state_publisher_node)
+    ld.add_action(tf_world)
+    ld.add_action(world_pose_node)
+    ld.add_action(rviz_node)
+
+    # Start control stack after robot_state_publisher starts
+    ld.add_action(
         RegisterEventHandler(
             OnProcessStart(
-                target_action = robot_state_publisher_node, # Wait until robot_state_publisher_node is started
+                target_action = robot_state_publisher_node,
                 on_start = [control_node,
-                            smart_template_node,
-                            ExecuteProcess(
+                           smart_template_node,
+                           ExecuteProcess(
                                 condition=IfCondition(LaunchConfiguration('gui')),
                                 cmd=['rqt', '--standalone', 'smart_template_gui', '--force-discover'],
                                 output='screen'
-                            )]
+                           )]
             )
         )
     )
 
     # Spawn controllers    
-    def controller_spawner(controller_name: str, active: bool = True, controller_type: str = None, 
-                           condition: Optional[LaunchConfiguration] = None, extra_args: List[str] = None):
+    def controller_spawner(
+        controller_name: str,
+        active: bool = True,
+        controller_type: str = None,
+        condition: Optional[LaunchConfiguration] = None,
+        extra_args: List[str] = None,
+    ):
         inactive_flags = ["--inactive"] if not active else []
         type_flags = ["--controller-type", controller_type] if controller_type else []
         args = [
@@ -199,21 +211,28 @@ def generate_launch_description():
             executable="spawner",
             arguments=args,
             condition=IfCondition(condition) if condition else None,
-            output="screen"
+            output="screen",
         )
-    ld.add_action(controller_spawner("joint_state_broadcaster", active=True))
-    ld.add_action(controller_spawner("position_controller", active=True))
 
-    
-    ld.add_action(rviz_node)        # Rviz
-    ld.add_action(tf_world)         # tf world static broadcaster
-    ld.add_action(world_pose_node)  # world_pose listenter (temporary)
-    
-    # Logging 
-    ld.add_action(LogInfo(msg=['[robot_launch] Active controller = position_controller']))
+    #pc_spawner = controller_spawner("position_controller", active=True)
+    jtc_spawner = controller_spawner("joint_trajectory_controller", active=True)
+    jsb_spawner = controller_spawner("joint_state_broadcaster", active=True)
+
+    ld.add_action(jsb_spawner)
+    ld.add_action(
+        RegisterEventHandler(
+            OnProcessExit(
+                target_action=jsb_spawner,
+                on_exit=[
+                    TimerAction(
+                        period=1.0,
+                        actions=[jtc_spawner],
+                    )
+                ],
+            )
+        )
+    )
+
+    ld.add_action(LogInfo(msg=["[robot_launch] Active controller = joint_trajectory_controller"]))
 
     return ld
-
-
-
-

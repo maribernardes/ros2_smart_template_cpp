@@ -29,6 +29,12 @@
         </geometry>
         <material name="silver"/>
       </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 ${-pi/2}"/>
+          <geometry>
+            <mesh filename="package://smart_template_description/meshes/base_link.stl"/>
+          </geometry>
+      </collision>
     </link>
     
     <link name="vertical_link">
@@ -39,6 +45,12 @@
         </geometry>
         <material name="silver"/>
       </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 ${-pi/2}"/>
+        <geometry>
+          <mesh filename="package://smart_template_description/meshes/vertical_link.stl"/>
+        </geometry>
+      </collision>      
     </link>
     
     <link name="horizontal_link">
@@ -49,6 +61,12 @@
         </geometry>
         <material name="silver"/>
       </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 ${-pi/2}"/>
+        <geometry>
+          <mesh filename="package://smart_template_description/meshes/horizontal_link.stl"/>
+        </geometry>
+      </collision>      
     </link>
 
     <link name="needle_link">
@@ -59,6 +77,12 @@
         </geometry>
         <material name="silver"/>
       </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 ${-pi/2}"/>
+        <geometry>
+          <mesh filename="package://smart_template_description/meshes/needle_link_${needle_type}.stl"/>
+        </geometry>
+      </collision>
     </link>
 
     <!-- Define joints -->

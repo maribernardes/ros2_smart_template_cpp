@@ -1,26 +1,57 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:macro name="smart_template_ros2_control" params="sim_level">
+  <xacro:macro name="smart_template_ros2_control" params="use_mock_hardware robot_mode needle_type">
+
+    <!-- Match URDF joint limit logic -->
+    <xacro:property name="horizontal_min" value="-0.03"/>
+    <xacro:property name="horizontal_max" value="0.03"/>
+    <xacro:property name="vertical_min" value="-0.025"/>
+    <xacro:property name="vertical_max" value="0.025"/>
+    <xacro:property name="insertion_min" value="0.0"/>
+    <xacro:property name="insertion_max" value="0.115"/>
+
+    <xacro:if value="${needle_type == 'default'}">
+      <xacro:property name="insertion_max" value="0.115"/>
+    </xacro:if>
+    <xacro:if value="${needle_type == 'stylet'}">
+      <xacro:property name="insertion_max" value="0.115"/>
+    </xacro:if>
+    <xacro:if value="${needle_type == 'smartneedle'}">
+      <xacro:property name="insertion_max" value="0.165"/>
+    </xacro:if>
+    <xacro:if value="${needle_type == 'biopsygun'}">
+      <xacro:property name="insertion_max" value="0.175"/>
+    </xacro:if>
+
+    <xacro:if value="${robot_mode == 'calibration'}">
+      <xacro:property name="horizontal_min" value="-1000000.0"/>
+      <xacro:property name="horizontal_max" value="1000000.0"/>
+      <xacro:property name="vertical_min" value="-1000000.0"/>
+      <xacro:property name="vertical_max" value="1000000.0"/>
+      <xacro:property name="insertion_min" value="-1000000.0"/>
+      <xacro:property name="insertion_max" value="1000000.0"/>
+    </xacro:if>
+
     <ros2_control name="smart_template" type="system">
     
       <hardware>
-        <xacro:if value="${int(sim_level) == 1}">
+        <xacro:if value="${use_mock_hardware}">
           <plugin>mock_components/GenericSystem</plugin>
         </xacro:if>
-        <xacro:if value="${int(sim_level) == 2}">
+        <xacro:if value="${not use_mock_hardware}">
           <plugin>galil_driver/GalilSystemHardwareInterface</plugin>
         </xacro:if>
       </hardware>
 
       <joint name="horizontal_joint">
         <command_interface name="position">
-          <param name="min">-0.03</param>
-          <param name="max"> 0.03</param>
+          <param name="min">${horizontal_min}</param>
+          <param name="max">${horizontal_max}</param>
         </command_interface>
         <command_interface name="velocity">
           <param name="min">-0.005</param>
-          <param name="max"> 0.005</param>
+          <param name="max">0.005</param>
         </command_interface>
         <state_interface name="position">
           <param name="initial_value">0</param>
@@ -30,12 +61,12 @@
 
       <joint name="insertion_joint">
         <command_interface name="position">
-          <param name="min">0</param>
-          <param name="max">0.1</param>
+          <param name="min">${insertion_min}</param>
+          <param name="max">${insertion_max}</param>
         </command_interface>
         <command_interface name="velocity">
           <param name="min">-0.005</param>
-          <param name="max"> 0.005</param>
+          <param name="max">0.005</param>
         </command_interface>
         <state_interface name="position">
           <param name="initial_value">0</param>
@@ -45,12 +76,12 @@
 
       <joint name="vertical_joint">
         <command_interface name="position">
-          <param name="min">-0.025</param>
-          <param name="max">0.025</param>
+          <param name="min">${vertical_min}</param>
+          <param name="max">${vertical_max}</param>
         </command_interface>
         <command_interface name="velocity">
           <param name="min">-0.005</param>
-          <param name="max"> 0.005</param>
+          <param name="max">0.005</param>
         </command_interface>
         <state_interface name="position">
           <param name="initial_value">0</param>

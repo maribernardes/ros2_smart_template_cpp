@@ -21,7 +21,6 @@ find_package(Eigen3 REQUIRED)
 find_package(smart_template_description REQUIRED) # URDF
 find_package(smart_template_interfaces REQUIRED)  # Messages
 find_package(smart_template_moveit_config REQUIRED)  # Messages
-#find_package(galil_driver REQUIRED)               # Controller
 
 
 # Create Smart Template node
@@ -37,7 +36,6 @@ target_include_directories(smart_template_node
 )
 
 target_link_libraries(smart_template_node
-  gclib
   tinyxml2
 )
 
@@ -72,12 +70,6 @@ install(TARGETS
 )
 
 # Install Python executables with clean names
-install(PROGRAMS
-  src/virtual_template.py
-  DESTINATION lib/${PROJECT_NAME}
-  RENAME virtual_template
-)
-
 install(PROGRAMS
   src/world_pose_listener.py
   DESTINATION lib/${PROJECT_NAME}

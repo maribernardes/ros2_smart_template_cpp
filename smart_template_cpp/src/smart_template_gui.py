@@ -145,6 +145,7 @@ class SmartTemplateGUIPlugin(Plugin):
 
         # Left panel: Joint controls
         joint_controls_layout = QVBoxLayout()
+        joint_controls_layout.addWidget(QLabel('Sliders show current position (read-only).'))
 
         # Dictionaries to hold widgets
         self.sliders = {}
@@ -161,6 +162,7 @@ class SmartTemplateGUIPlugin(Plugin):
             slider.setMinimum(int(limits['min']))
             slider.setMaximum(int(limits['max']))
             slider.setEnabled(False)  # Non-editable
+            slider.setToolTip('Current position feedback. Use Desired and Send, or the step buttons, to move.')
             slider.setValue(0)
 
             # Min and Max labels

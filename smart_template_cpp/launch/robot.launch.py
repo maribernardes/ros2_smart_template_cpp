@@ -15,6 +15,12 @@ from launch.actions import LogInfo, TimerAction, ExecuteProcess
 
 def generate_launch_description():
     ld = LaunchDescription()
+    ld.add_action(DeclareLaunchArgument(
+        'motion_controller',
+        default_value='position_controller',
+        choices=['position_controller', 'joint_trajectory_controller'],
+        description='Position controller for the SmartTemplate GUI; trajectory controller for MoveIt',
+    ))
     # Launch arguments
     arg_robot_mode = DeclareLaunchArgument(
         'robot_mode',
@@ -214,8 +220,7 @@ def generate_launch_description():
             output="screen",
         )
 
-    #pc_spawner = controller_spawner("position_controller", active=True)
-    jtc_spawner = controller_spawner("joint_trajectory_controller", active=True)
+    motion_spawner = controller_spawner(LaunchConfiguration('motion_controller'), active=True)
     jsb_spawner = controller_spawner("joint_state_broadcaster", active=True)
 
     ld.add_action(jsb_spawner)
@@ -226,13 +231,13 @@ def generate_launch_description():
                 on_exit=[
                     TimerAction(
                         period=1.0,
-                        actions=[jtc_spawner],
+                        actions=[motion_spawner],
                     )
                 ],
             )
         )
     )
 
-    ld.add_action(LogInfo(msg=["[robot_launch] Active controller = joint_trajectory_controller"]))
+    ld.add_action(LogInfo(msg=["[robot_launch] Selected controller = ", LaunchConfiguration('motion_controller')]))
 
     return ld

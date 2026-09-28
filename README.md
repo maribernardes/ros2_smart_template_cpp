@@ -20,8 +20,7 @@ The current `main` branch is intended for ROS 2 Jazzy.
 - MoveIt 2
 - Eigen3 and TinyXML2
 - Python 3, RQt, and Qt bindings for the GUI
-- Galil `gclib` (the C++ executable links to this library in both mock and hardware builds)
-- `galil_driver` when `use_mock_hardware:=false`
+- Galil `gclib` and `galil_driver` only when `use_mock_hardware:=false`
 
 Install the ROS packages available through APT:
 
@@ -35,7 +34,7 @@ sudo apt install \
   ros-jazzy-rqt-gui-py
 ```
 
-Install `gclib` separately and ensure that the linker can find it before building. Real-hardware operation also requires a `galil_driver` installation that exports `galil_driver/GalilSystemHardwareInterface`.
+Mock hardware requires neither `gclib` nor `galil_driver`. For real-hardware operation, install `gclib` and build a `galil_driver` installation that exports `galil_driver/GalilSystemHardwareInterface`; the driver owns the Galil connection.
 
 ## Build
 
@@ -53,6 +52,18 @@ source install/setup.bash
 ```
 
 Source `/opt/ros/jazzy/setup.bash` and the workspace `install/setup.bash` in every new terminal.
+
+If your workspace also contains the separate `ros2_galil` repository, build only the SmartTemplate packages and their workspace dependencies for mock operation:
+
+```bash
+cd ~/ws_smart
+source /opt/ros/jazzy/setup.bash
+colcon build --symlink-install --packages-up-to smart_template_cpp
+source install/setup.bash
+ros2 launch smart_template_cpp robot.launch.py use_mock_hardware:=true
+```
+
+This uses the normal C++ node with `mock_components/GenericSystem`, without building or loading the Galil driver.
 
 ## Launch the robot
 
@@ -89,6 +100,7 @@ ros2 launch smart_template_cpp robot.launch.py robot_mode:=calibration
 | `use_mock_hardware` | `true` | `true` for `mock_components/GenericSystem`; `false` for the Galil interface |
 | `launch_rviz` | `false` | Start the standard robot-description RViz configuration |
 | `gui` | `true` | Start the SmartTemplate RQt plugin |
+| `motion_controller` | `position_controller` | Use `position_controller` for GUI/node commands or `joint_trajectory_controller` for MoveIt |
 | `description_package` | `smart_template_description` | Package containing the robot description |
 | `description_file` | `smart_template.urdf.xacro` | Xacro file in the description package |
 | `name` | `smart_template` | ROS 2 Control system name passed to Xacro |
@@ -102,7 +114,7 @@ The launch file starts:
 - `ros2_control_node`
 - `smart_template_node`
 - `joint_state_broadcaster`
-- `joint_trajectory_controller`
+- the selected motion controller (default: `position_controller`)
 - the SmartTemplate RQt GUI and standard RViz display when enabled
 
 ## MoveIt 2
@@ -111,13 +123,15 @@ Start the robot/control stack first, then launch MoveIt in a second sourced term
 
 ```bash
 # Terminal 1
-ros2 launch smart_template_cpp robot.launch.py gui:=false
+ros2 launch smart_template_cpp robot.launch.py gui:=false motion_controller:=joint_trajectory_controller
 
 # Terminal 2
 ros2 launch smart_template_moveit_config moveit.launch.py
 ```
 
 `moveit.launch.py` starts `move_group` and, by default, the MoveIt RViz configuration. Set `launch_rviz:=false` to run without MoveIt RViz.
+
+The SmartTemplate GUI and node send direct position commands and require `motion_controller:=position_controller`. The GUI sliders are read-only position indicators; use the Desired fields and Send button, or the step buttons, to move.
 
 ## ROS interfaces
 
@@ -187,8 +201,6 @@ rqt --standalone smart_template_gui --force-discover
 
 ## Current limitations
 
-- `robot.launch.py` activates `joint_trajectory_controller`, whereas `smart_template_node` currently publishes direct commands to `/position_controller/commands`. These must be aligned before the node's topic-, service-, action-, and GUI-generated motion commands can drive the controller launched by default.
-- The installed `virtual_template` utility imports a `GetPoint` service that is not present in `smart_template_interfaces`; it cannot currently be started without restoring that interface or removing the dependency.
 - `ABORT` sets the node's internal abort state, but the hardware-level Galil stop command is currently a placeholder in `smart_template_node.cpp`.
 - The MoveIt launch file starts the planning components only; it does not start the ROS 2 Control stack.
 
